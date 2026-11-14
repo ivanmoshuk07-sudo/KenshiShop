@@ -52,7 +52,7 @@ function M.new(shop,roles)
   else
    emit(s,'SPAWN_REQUEST_OK','group='..s.next..' role='..role.name,'requested_'..s.next)
   end
-  if (shop=='bar' or shop=='police' or role.name=='guard') and (not good or (not res and
+  if (not good or (not res and
    not (type(why)=='string' and (why:find('^EXISTING_SQUAD') or why:find('^ALREADY_ATTEMPTED'))))) then
    s.retries[s.next]=(s.retries[s.next] or 0)+1
    if s.retries[s.next]<3 then
@@ -73,11 +73,11 @@ function M.new(shop,roles)
  function M2.start(building)
   local h=building:getHandle();local key=h:toString()
   if states[key] then
-   if (shop=='bar' or shop=='police') and states[key].stage=='CLOCK_ROLLBACK' then
+   if states[key].stage=='CLOCK_ROLLBACK' then
     -- Only an explicit fresh construction/interior completion may re-arm the queue.
     -- Individual driver spawn guards still refuse duplicates.
     unhook(states[key]);states[key]=nil
-    Log.console('NPC_SCHEDULE_REARM shop=bar building='..key..' reason=explicit_new_construction')
+    Log.console('NPC_SCHEDULE_REARM shop='..shop..' building='..key..' reason=explicit_new_construction')
    else return 'ALREADY_SCHEDULED '..states[key].stage end
   end
   local ok,time=pcall(now)

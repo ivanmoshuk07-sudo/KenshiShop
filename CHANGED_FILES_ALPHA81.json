@@ -1,0 +1,23 @@
+{
+  "Development/MODKIT_LICENSE.txt": "db3be30793a53a2ae6ee4cc07904f489ac85e560e79e70c60ccf712c138f57f2",
+  "Development/README.md": "af6056afe441e329f46ba1efd2ce71bae1b97f4159f81e8216bb92d4c0dd7af6",
+  "Development/build_alpha81.py": "b108d368db0725a4304f8761ffebdac49de950ad7e3e9d90531801ebe9a6f5d4",
+  "Development/kenshimod.py": "56a104c86272efa78a24798ad6d292f39b71bf5d6674e38a0c50e77e597b9ae6",
+  "Development/tests/controller.lua": "d47abb9ca92a66e91f7dc109c863e21a6f4d896c2691dc2be3bab7d403be8336",
+  "Development/tests/data.py": "c15bb06bd408cc54f16e9af146aa30e696df37e756b3a223e1218743c8e92d60",
+  "Development/tests/runtime.lua": "be9a5725bd3c10a1fa7437f3fe73a0d706107b1f6a86f297406004e9eb4262de",
+  "KenshiShop/History/alpha80/CHANGE_REPORT_ALPHA80_RU.md": "d52c97bd11da65d4d0d1131d0b08dc708b00093daacb4f1415ddd470f491cfee",
+  "KenshiShop/History/alpha80/INSTALL_ALPHA80_RU.txt": "93e07b50e8e19ae4cb12484a00d9a13b2bd0ed3c75d83bba4715185be75a78ce",
+  "KenshiShop/History/alpha80/TEST_REPORT_ALPHA80_RU.md": "3009961faa49f3bf4fc5d23e56fe13d352b3c01bd000fc733b8623acc8608432",
+  "KenshiShop/KenshiShop.mod": "bda009600592936be12ddc98a9779111998f9dd1963db6e2a0a27e78a1aef810",
+  "KenshiShop/scripts/Core/NPC/Catalog.lua": "0ef99453b522db9e2f35601aade54eb6614f2a2edd3f3e49c49e2d4b95730ac5",
+  "KenshiShop/scripts/Core/NPC/Controller.lua": "3622abb919e9d588486cfb78b60ceef8440ec557caf9376bfab71a3b1ac56923",
+  "KenshiShop/scripts/Core/NPC/LiveState.lua": "41659da6230f7645973dbbffd81fe6c3709cec76881af65c8f39e101ad285524",
+  "KenshiShop/scripts/Core/NPC/Repair.lua": "f6996bcb57f3dda9f7ec37c9197cfca2d605231e9e2efcca36d96947e6b9fa08",
+  "KenshiShop/scripts/Core/NPC/RoleAI.lua": "39635e343d2c2e6894135bc23bd5193f52780fcb0c26f58c49bd39890d1b7421",
+  "KenshiShop/scripts/Core/NPC/Scheduler.lua": "5697543a85b7ba572a0571d23e71f7dbe14c95f69edffc60594946a9176a8b73",
+  "KenshiShop/scripts/Core.lua": "2b1786e94117a53c0eadf6fe2d77bbce6110f5d6f155517f1bc9da371a3a6a2a",
+  "KenshiShop/scripts/KenshiLuaConsole.lua": "b412d26df06ebe4630696a86eeeb23728b9601a4671181cd9b842f3e6eb5d3e7",
+  "KenshiShop_LegendaryCompat/KenshiShop_LegendaryCompat.mod": "a52def8b0fb4b300bb2d7f6d9fc88f08b85df7ce265d852cfb164ec8cd2de7f2",
+  "README_ALPHA81_RU.md": "3bfe6763a130dee06a0917a57c8659bc3647be148c1908d688cc8272fb7801ae"
+}

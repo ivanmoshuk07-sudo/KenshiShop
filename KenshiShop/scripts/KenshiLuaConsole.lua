@@ -4,7 +4,7 @@
 local Log = require('Diagnostics')
 local layoutsOK, Layouts = pcall(require, 'Layouts')
 if not layoutsOK then Layouts = {} end
-local API = {version = '0.3.0-alpha.80-native-medic-robotics-rescue'}
+local API = {version = '0.3.0-alpha.81-native-roles-trade'}
 local state = {
     started = false, core = 'not started', coreError = nil,
     tracked = {}, order = {},

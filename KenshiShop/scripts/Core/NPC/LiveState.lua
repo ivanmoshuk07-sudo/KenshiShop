@@ -31,6 +31,10 @@ function M.halted(c)
  local fleeing=M.call(c,'isFleeing')
  if fleeing==nil then return true,'UNKNOWN_FLEEING' end
  if fleeing then return true,'FLEEING' end
+ local carried=M.call(c,'getCarryingObject')
+ local empty=carried and M.call(carried,'isNull')
+ if empty==nil then return true,'UNKNOWN_CARRYING' end
+ if not empty then return true,'CARRYING_PERSON' end
  return false,'OK'
 end
 function M.safeToOrder(ms)
