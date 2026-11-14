@@ -21,16 +21,16 @@ end
 local a,b=member('leader'),member('mate')
 local ap={getSquadLeader=function()return a.char end,getSquadSize=function()return 2 end}
 local p={getActivePlatoon=function()return ap end,getOwnerships=function()return {_homeBuilding={toString=function()return 'home'end}}end}
-local gm={getData=function(_,id)return {name='KS82 Indoor guards'}end}
+local gm={getData=function(_,id)return {name='KS83 Indoor guards'}end}
 function getGameWorld()return {gamedata=gm}end
 local function state()
  label='KS Medic Robotics Rescue';replaceCount=0;setupCount=0;failMember=nil;busy=false;carrying=false
  return {cfg={shop='bar',role='guard',count=2},key='home',platoon=p}
 end
 test('roles choose 24h/day/guard/chief/patrol packages',function()
- for _,x in ipairs({{'bar','trader','8200'},{'robotics','trader','8200'},{'engineering','trader','8201'},
-  {'weapons','trader','8201'},{'armour','trader','8201'},{'bar','guard','8202'},
-  {'police','chief','8203'},{'police','patrol','8204'}})do
+ for _,x in ipairs({{'bar','trader','8300'},{'robotics','trader','8300'},{'engineering','trader','8301'},
+  {'weapons','trader','8301'},{'armour','trader','8301'},{'bar','guard','8302'},
+  {'police','chief','8303'},{'police','patrol','8304'}})do
   local id=Work.package({shop=x[1],role=x[2]});assert(id==x[3]..'-KenshiShop.mod')
  end
 end)
@@ -49,7 +49,15 @@ test('partial member setup retries without replacing package again',function()
  failMember=nil;assert(Work.ensure(s,{a,b}));assert(replaceCount==1 and setupCount==2)
 end)
 test('saved matching package still finishes member setup',function()
- local s=state();label='KS82 Indoor guards';assert(Work.ensure(s,{a,b}));assert(replaceCount==0 and setupCount==2)
+ local s=state();label='KS83 Indoor guards';assert(Work.ensure(s,{a,b}));assert(replaceCount==0 and setupCount==2)
+end)
+test('saved alpha.81 and alpha.82 packages are recognized, then migrated once',function()
+ for _,old in ipairs({'KS Native Indoor guards','KS82 Indoor guards'})do
+  local s=state();label=old
+  assert(Work.isWorkingPackage(s.cfg,label));assert(Work.ensure(s,{a,b}))
+  assert(s.work.upgraded and label=='KS83 Indoor guards' and replaceCount==1)
+  assert(Work.ensure(s,{a,b}) and replaceCount==1)
+ end
 end)
 test('setup failures stop after three attempts',function()
  local s=state();failMember='leader';for i=1,10 do assert(not Work.ensure(s,{a,b}))end
@@ -57,12 +65,13 @@ test('setup failures stop after three attempts',function()
 end)
 local Catalog=require('Core.NPC.Catalog')
 local function data(sid,name,refs,kind)
- local d={stringID=sid,name=name,type=kind or 52,refs=refs or {},idata={},fdata={}}
- function d:getListSize(cat)return cat=='vendors' and #self.refs or 0 end
- function d:getFromList(cat,i)return cat=='vendors' and self.refs[i+1] and self.refs[i+1][1] or nil end
- function d:getValueFromList(_,i)local v=self.refs[i+1];return {v[2],v[3],v[4]}end
- function d:clearList()self.refs={}end
- function d:addToList(_,sid,x,y,z)self.refs[#self.refs+1]={sid,x,y,z}end
+ local d={stringID=sid,name=name,type=kind or 52,refs=refs or {},idata={},fdata={},lists={}}
+ function d:rows(cat)return cat=='vendors' and self.refs or self.lists[cat] or {} end
+ function d:getListSize(cat)return #self:rows(cat) end
+ function d:getFromList(cat,i)local v=self:rows(cat)[i+1];return v and v[1]end
+ function d:getValueFromList(cat,i)local v=self:rows(cat)[i+1];return {v[2],v[3],v[4]}end
+ function d:clearList(cat)if cat=='vendors'then self.refs={}else self.lists[cat]={}end end
+ function d:addToList(cat,sid,x,y,z)local rows=self:rows(cat);rows[#rows+1]={sid,x,y,z}end
  return d
 end
 local own=data('307-KenshiShop.mod','KS Weapons',{{'fallback',100,0,0}})
@@ -88,4 +97,23 @@ test('catalog uses normal native refresh, setup once; repeated normal refresh re
  assert(Catalog.ensure(s,{}));assert(Catalog.ensure(s,{}));assert(n==2 and setup==1)
 end)
 test('non-traders never get vendor setup',function()assert(Catalog.ensure({cfg={role='guard'}},{}))end)
+test('stable native IDs work with translated names and no squad enumeration',function()
+ local scrap=data('56154-rebirth.mod','Хламилище',{{'52319-rebirth.mod',100,0,0},{'56149-rebirth.mod',7,0,0},{'49375-rebirth.mod',30,0,0}})
+ local mech=data('44855-rebirth.mod','Механическая лавка',{{'1502-gamedata.base',100,0,0}})
+ local weapon=data('weap83','Свой продавец',{{'fallback',1,0,0}})
+ local eng=data('eng83','Свой инженер',{{'fallback',1,0,0}})
+ scrap.lists['special items']={{'rare-item',2,4,100}}
+ weapon.lists['weapon level']={{'obsolete-level',1,0,0}}
+ records[scrap.stringID]=scrap;records[mech.stringID]=mech;records.weap83=weapon;records.eng83=eng
+ for _,sid in ipairs({'52319-rebirth.mod','56149-rebirth.mod','49375-rebirth.mod','1502-gamedata.base'})do records[sid]=data(sid,'Локализованный набор',{},49)end
+ gm.mainList={}
+ local ok,profile=Catalog.prepare({role='trader',shop='weapons',template='weap83'})
+ assert(ok and profile.source=='56154-rebirth.mod' and #weapon.refs==3)
+ assert(weapon.lists['special items'][1][2]==2 and #weapon.lists['weapon level']==0)
+ local yes,engineering=Catalog.prepare({role='trader',shop='engineering',template='eng83'})
+ assert(yes and engineering.source=='44855-rebirth.mod' and #eng.refs==3)
+ assert(eng.refs[2][1]=='49375-rebirth.mod' and eng.refs[2][2]==30)
+ assert(eng.refs[3][1]=='56149-rebirth.mod' and eng.refs[3][2]==7)
+ assert(#scrap.refs==3 and #mech.refs==1 and scrap.lists['special items'][1][2]==2)
+end)
 print('Behavioral tests passed: '..passed)

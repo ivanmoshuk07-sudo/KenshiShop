@@ -48,6 +48,14 @@ local function score(gm,d,shop)
  return 0
 end
 local function source(gm,shop)
+ -- Stable FCS IDs from the supplied offline vanilla shop catalogue. Display
+ -- names can be translated, and mainList enumeration need not expose squads.
+ local ids=({weapons={'56154-rebirth.mod'},armour={'50249-rebirth.mod'},
+  engineering={'44855-rebirth.mod','64652-rebirth.mod','2242-gamedata.base'}})[shop] or {}
+ for _,sid in ipairs(ids)do
+  local d=Live.call(gm,'getData',sid,52)
+  if d and d.type==52 and listNames(gm,d)then return d,'NATIVE_ID' end
+ end
  local best,value,ambiguous=nil,0,false
  local ok,err=pcall(function()
   local count=0
@@ -64,12 +72,12 @@ local function source(gm,shop)
  if ambiguous then return nil,'SOURCE_AMBIGUOUS' end
  return best,best and 'ORIGINAL_TRADER' or 'SOURCE_NOT_FOUND'
 end
-local LISTS={'vendors','weapon level','weapons','armour level','armour vendor','weapon vendor','weapon manufacturer','crossbow vendor','robotics vendor'}
+local LISTS={'vendors','weapon level','weapons','armour level','armour vendor','weapon vendor','weapon manufacturer','crossbow vendor','robotics vendor','special items','special map items'}
 local function scalar(k)
  k=tostring(k):lower()
  return k:find('vendor',1,true) or k:find('weapon',1,true) or k:find('armour',1,true)
   or k:find('armor',1,true) or k:find('robotics level',1,true) or k:find('crossbow level',1,true)
-  or k:find('artifacts base value',1,true)
+  or k:find('artifacts',1,true) or k:find('special items',1,true) or k:find('special map items',1,true)
 end
 function M.prepare(cfg)
  if cfg.role~='trader' then return true end
@@ -103,12 +111,26 @@ function M.prepare(cfg)
   end
   if not hasConstruction and Live.call(gm,'getData','1502-gamedata.base',49)then filtered[#filtered+1]={'1502-gamedata.base',100,0,0}end
   lists=filtered
+  -- Technology and blueprints use the original Scraphouse vendor records and
+  -- their live weights (including other mods), rather than guessed item IDs.
+  local scrap=Live.call(gm,'getData','56154-rebirth.mod',52)
+  local tech=scrap and refs(gm,scrap,'vendors',49)
+  if not donor or not tech then return false,'ENGINEERING_TECH_SOURCE_MISSING' end
+  local present={};for _,v in ipairs(lists)do present[v[1]]=true end
+  for _,sid in ipairs({'49375-rebirth.mod','56149-rebirth.mod'})do
+   if not present[sid]then
+    local found
+    for _,v in ipairs(tech)do if v[1]==sid then found=v;break end end
+    if not found then return false,'ENGINEERING_TECH_LIST_MISSING '..sid end
+    lists[#lists+1]=found
+   end
+  end
  end
  local changes={};local backups={};local numbers={}
  local ok,err=pcall(function()
   for _,cat in ipairs(LISTS)do
    local values=cat=='vendors' and lists or (donor and refs(gm,donor,cat))
-   if values and (cat=='vendors' or #values>0)then
+   if values then
     backups[cat]=assert(refs(gm,own,cat),'BACKUP_FAILED '..cat)
     changes[cat]=values
    end
@@ -134,8 +156,7 @@ function M.prepare(cfg)
  local profile={gm=gm,source=donor and donor.stringID or 'EXPLICIT_NATIVE_LIST',lists=lists,quality=quality}
  prepared[cfg.template]=profile
  local labels={};for _,v in ipairs(lists)do local data=Live.call(gm,'getData',v[1],49);labels[#labels+1]=v[1]..':'..tostring(data and data.name)end
- Log.console('NPC_CATALOG82 shop='..cfg.shop..' source='..profile.source..' lists='..table.concat(labels,',')..' quality=FULL_VENDOR_PROFILE_ZERO_VALUES_PRESERVED')
- if cfg.shop=='engineering' and not donor then Log.error('NPC_CATALOG82_RESEARCH_SOURCE_MISSING engineering construction_only; requires_runtime_catalogue_audit')end
+ Log.console('NPC_CATALOG83 shop='..cfg.shop..' source='..profile.source..' lists='..table.concat(labels,',')..' quality=FULL_VENDOR_PROFILE_ZERO_VALUES_PRESERVED')
  return true,profile
 end
 -- Native stock generation reads faction grade weights. Borrow only the quality
@@ -175,7 +196,7 @@ function M.ensure(s,ms)
  local ok,profile=M.prepare(s.cfg)
  if not ok then
   r.tries=r.tries+1;r.nextTry=(s.now or Live.clock())+10
-  if r.tries<=3 then Log.error('NPC_CATALOG82_FAIL shop='..s.cfg.shop..' '..tostring(profile))end
+  if r.tries<=3 then Log.error('NPC_CATALOG83_FAIL shop='..s.cfg.shop..' '..tostring(profile))end
   return false
  end
  local ap=Live.call(s.platoon,'getActivePlatoon')
@@ -184,23 +205,23 @@ function M.ensure(s,ms)
   assert(ap:getHasVendorList()==true,'NO_VENDOR_LIST')
   assert(ap:getIsTrader()==true,'NOT_TRADER')
   ap:setupTraderBuildings()
-  -- A saved 810x -> 820x handoff marks the one-time stock migration. The new
+  -- A saved 810x/820x -> 830x handoff marks the one-time stock migration. The new
   -- package persists in the save, so ordinary reloads never force new goods.
   M.withQuality(s,profile,function()
   if s.saved and s.work.upgraded and not r.migrationAttempted then
    r.migrationAttempted=true
    ap:_forceRefreshInventory()
-   Log.console('NPC_CATALOG82_MIGRATED shop='..s.cfg.shop..' native_refresh_once=true')
+   Log.console('NPC_CATALOG83_MIGRATED shop='..s.cfg.shop..' native_refresh_once=true')
   else ap:refreshInventory(false) end
   end)
  end)
  if not yes then
   r.tries=r.tries+1;r.nextTry=(s.now or Live.clock())+10
-  if r.tries<=3 then Log.error('NPC_CATALOG82_SETUP_FAIL '..tostring(err))end
+  if r.tries<=3 then Log.error('NPC_CATALOG83_SETUP_FAIL '..tostring(err))end
   return false
  end
  r.done=true;r.profile=profile
- Log.console('NPC_CATALOG82_READY shop='..s.cfg.shop..' source='..profile.source..' native_stock=true')
+ Log.console('NPC_CATALOG83_READY shop='..s.cfg.shop..' source='..profile.source..' native_stock=true')
  return true
 end
 return M

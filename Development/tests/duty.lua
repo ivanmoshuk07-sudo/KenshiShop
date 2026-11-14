@@ -4,7 +4,12 @@ local Goals=require('Core.NPC.NativeGoals');local Route=require('Core.NPC.CityRo
 local Duty=require('Core.NPC.Duty');local Catalog=require('Core.NPC.Catalog')
 local passed=0
 local function test(name,fn)fn();passed=passed+1;print('PASS '..name)end
-local function handle(key,obj)return {toString=function()return key end,getPlatoon=function()return obj end,isNull=function()return false end}end
+local function handle(key,obj)
+ local h={toString=function()return key end,getPlatoon=function()return obj end}
+ function h:isNull()return key==nil end
+ function h:setNull()key=nil end
+ return h
+end
 local function character(key,pos)
  local c={position=pos or {x=0,y=0,z=0},busy=false,active=0,carrying=false}
  local o={goals={},hasOrders=function()return false end,setNeedGOAP=function()end}
@@ -20,7 +25,8 @@ local function character(key,pos)
  function c:isInCombatMode()return self.busy end
  function c:isValid()return true end
  function c:addGoal(t,sub)
-  local g={weight=1,priority=0,key=function()return t end,setLocation=function(self,p)self.location=p end}
+  assert(sub and sub.getHandle,"bad argument #3 (KenshiLua.RootObjectBase expected, got nil)")
+  local g={subject=sub:getHandle(),weight=1,priority=0,key=function()return t end,setLocation=function(self,p)self.location=p end}
   o.goals[#o.goals+1]=g
  end
  function c:isEnemy(enemy)return enemy.hostile==true end
@@ -45,9 +51,19 @@ function town:getBuildingsManager()return {buildingEntities={[h1]=true,[h2]=true
 test('ordinary movement/hold goals stay below emergency priority and never duplicate',function()
  local c,o=character('one');assert(Goals.routine(c,{x=10,y=0,z=0},false));assert(Goals.routine(c,{x=10,y=0,z=0},false));assert(count(o,1)==1 and o.goals[1].priority==2)
  assert(Goals.routine(c,{x=10,y=0,z=0},true));assert(count(o,1)==0 and count(o,30)==1)
+ assert(o.goals[1].subject:isNull() and not c:getHandle():isNull())
+end)
+test('old addGoal binding rejects nil; location-only tasks clear the temporary subject',function()
+ local c,o=character('strict')
+ assert(not pcall(c.addGoal,c,1,nil))
+ assert(Goals.routine(c,{x=20,y=0,z=30},false))
+ assert(o.goals[1].subject:isNull() and o.goals[1].location.x==20)
+ assert(not c:getHandle():isNull())
+ local enemy=character('target');assert(Goals.set(c,5,nil,enemy,3))
+ assert(o.goals[2].subject:toString()=='target')
 end)
 test('foreign native goals are never adopted or removed',function()
- local c,o=character('two');c:addGoal(1,nil);assert(not Goals.routine(c,{x=1,y=0,z=0},false));Goals.clearRoutine(c);assert(count(o,1)==1)
+ local c,o=character('two');c:addGoal(1,c);assert(not Goals.routine(c,{x=1,y=0,z=0},false));Goals.clearRoutine(c);assert(count(o,1)==1)
 end)
 test('post audit preserves care, dialogue, sleep, combat, carrying and orders',function()
  local c,o=character('three')
@@ -130,5 +146,24 @@ test('a stalled safe NPC gets at most three native movement recovery calls',func
  for i=0,15 do s.now=12*60+i;Duty.tick(s,ms,b)end
  assert(moves==3 and count(o,1)==1)
  c.active=58;s.now=s.now+10;Duty.tick(s,ms,b);assert(moves==3)
+end)
+test('a failed native goal still gets bounded movement recovery, preserving care',function()
+ local c,o=character('binding-failure');local moves=0
+ c.addGoal=function()error('native API unavailable')end
+ c.setDestination=function(_,p,teleport)assert(teleport==false and p.z<0);moves=moves+1 end
+ local s=state('trader');local ms={{key='binding-failure',char=c}}
+ for i=0,15 do s.now=12*60+i;Duty.tick(s,ms,b)end
+ assert(moves==3 and #o.goals==0 and Duty.status(s)=='GOAL_FAILED:1')
+ c.active=58;s.now=s.now+10;Duty.tick(s,ms,b);assert(moves==3)
+end)
+test('post projection only adjusts destination height within the same floor',function()
+ local c,o=character('height');local old=world.navmesh.getPositionValid
+ local Posts=require('Core.NPC.PostData');local raw
+ for _,p in ipairs(Posts.weapons)do if p.role=='trader'then raw=p;break end end
+ world.navmesh.getPositionValid=function(_,p)return math.abs(p.y-(raw.p[2]+2))<0.01 end
+ local s=state('trader');Duty.tick(s,{{key='height',char=c}},b)
+ assert(count(o,1)==1);local p=o.goals[1].location
+ assert(p.x==raw.p[1] and p.z==raw.p[3] and math.abs(p.y-raw.p[2])<=8)
+ world.navmesh.getPositionValid=old
 end)
 print('Duty regression tests passed: '..passed)

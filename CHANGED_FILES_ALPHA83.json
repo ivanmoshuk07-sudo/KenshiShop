@@ -1,0 +1,17 @@
+{
+  "Development/README.md": "edd8efb260a1141cbfcaa584d628f9ba6128011e59d7acfc38e2eef42735c010",
+  "Development/build_alpha83.py": "4d0d5b7d8eef3aaa107a5d94ce67b84d1140d5f9ce0d43f62bcd8ab4ecd1e983",
+  "Development/tests/data.py": "1cc15503c2891fd4c25cf2e44b3c53f8a9338b79cd4825e831f2c0d3da4a7abf",
+  "Development/tests/duty.lua": "55f93742ed6249d2a9c6795c0b67fed869b493092f945b0846590b3a40813d07",
+  "Development/tests/runtime.lua": "df04fcf8367f384064b8ecee29054119ea96a0332546a0da3485d0e8a6f68a63",
+  "KenshiShop/KenshiShop.mod": "7f073aed2cb2a63a751d6a6d59a16d5eaec76d373471fb9c96ee487d9c023af6",
+  "KenshiShop/scripts/Core.lua": "69062c64d54eb596016e40c0a018198288d8c0b210c5431cb8cd82277b3f6eb1",
+  "KenshiShop/scripts/Core/NPC/Catalog.lua": "16579ad6a40fce5834d7756bcc857ddb2d0d9efbcbaf401ad6a44a52f4e389df",
+  "KenshiShop/scripts/Core/NPC/Duty.lua": "05e5f19fee65f456472004b7e64bb2d27a73ae7232c032338a1b77cc402c3db7",
+  "KenshiShop/scripts/Core/NPC/NativeGoals.lua": "d9e88fa30dc2cb683cdc807a53fa52ee7e26a1f71aded887d18d592f16a5360b",
+  "KenshiShop/scripts/Core/NPC/RoleAI.lua": "8bc3953741c52e24bd94bfa8af9fad1dc97e0383d4db02959717284b79dde767",
+  "KenshiShop/scripts/KenshiLuaConsole.lua": "a6a936f839273042bd4c49ca83e892f6a170eb3fe24817b1b279895661ece4fc",
+  "README.md": "0fe9a5f67a76a5022705df7d48bd32f9753004b064a5efde514123eed9f73363",
+  "README_ALPHA83_RU.md": "6dc7910c373df119f6bcce1fe6ce7ed98c22058107f9aa771359ba218b0682b6",
+  "RELEASE_NOTES.md": "69c9ef0f77256b64a5a2752f2adb211703549683f96f020e70173ad397265d2f"
+}

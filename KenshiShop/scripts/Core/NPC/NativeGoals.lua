@@ -30,7 +30,9 @@ function M.set(c,key,point,subject,priority)
  if not o then return false,'ORDERS_UNAVAILABLE' end
  if g and not M.isOurs(g) then return false,'GOAL_CONFLICT '..key end
  if not g then
-  local ok,err=pcall(c.addGoal,c,key,subject)
+  -- Older KenshiLua requires a RootObjectBase even for location-only tasks.
+  -- Use a real carrier, then clear the task's copied handle below.
+  local ok,err=pcall(c.addGoal,c,key,subject or c)
   if not ok then return false,'ADD_GOAL '..tostring(err) end
   o,g=find(c,key)
   if not g then return false,'GOAL_NOT_REGISTERED '..key end
@@ -38,7 +40,12 @@ function M.set(c,key,point,subject,priority)
  local ok,err=pcall(function()
   g.weight=WEIGHT;g.priority=priority or 2;g.startTime=0;g.endTime=24
   g.resetsWhenDone=true
-  if subject then g.subject=subject:getHandle() end
+  if subject then g.subject=subject:getHandle()
+  else
+   -- Tasker.subject is a value copy. Never null the character's own handle.
+   local empty=g.subject;empty:setNull();g.subject=empty
+   assert(g.subject:isNull(),'LOCATION_GOAL_HAS_SUBJECT')
+  end
   if point then g:setLocation(point) end
  end)
  if not ok then return false,'GOAL_SETUP '..tostring(err) end

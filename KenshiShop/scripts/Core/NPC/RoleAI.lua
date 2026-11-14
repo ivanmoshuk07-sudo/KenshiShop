@@ -4,15 +4,15 @@ local Log=require('Diagnostics')
 local M={}
 function M.isWorkingPackage(cfg,name)
  local _,label=M.package(cfg)
- return name==label or name==({trader=(cfg.shop=='bar' or cfg.shop=='robotics') and 'KS Native Trader 24h' or 'KS Native Trader 06-23',guard='KS Native Indoor guards',chief='KS Native Police chief',patrol='KS Native Town patrol'})[cfg.role]
+ return label~=nil and (name==label or name==label:gsub('KS83','KS82') or name==({trader=(cfg.shop=='bar' or cfg.shop=='robotics') and 'KS Native Trader 24h' or 'KS Native Trader 06-23',guard='KS Native Indoor guards',chief='KS Native Police chief',patrol='KS Native Town patrol'})[cfg.role])
 end
 function M.package(cfg)
  if cfg.role=='trader' then
-  if cfg.shop=='bar' or cfg.shop=='robotics' then return '8200-KenshiShop.mod','KS82 Trader 24h' end
-  return '8201-KenshiShop.mod','KS82 Trader 06-23'
- elseif cfg.role=='guard' then return '8202-KenshiShop.mod','KS82 Indoor guards'
- elseif cfg.role=='chief' then return '8203-KenshiShop.mod','KS82 Police chief'
- elseif cfg.role=='patrol' then return '8204-KenshiShop.mod','KS82 Town patrol' end
+  if cfg.shop=='bar' or cfg.shop=='robotics' then return '8300-KenshiShop.mod','KS83 Trader 24h' end
+  return '8301-KenshiShop.mod','KS83 Trader 06-23'
+ elseif cfg.role=='guard' then return '8302-KenshiShop.mod','KS83 Indoor guards'
+ elseif cfg.role=='chief' then return '8303-KenshiShop.mod','KS83 Police chief'
+ elseif cfg.role=='patrol' then return '8304-KenshiShop.mod','KS83 Town patrol' end
 end
 local function say(s,event,why)
  Log.console('NPC_ROLE_'..event..' shop='..s.cfg.shop..' role='..s.cfg.role..' building='..s.key..' '..tostring(why or ''))

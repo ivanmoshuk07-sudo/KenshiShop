@@ -80,6 +80,18 @@ local function reached(c,p)
  local loc=Live.call(c,'getPosition')
  return T.valid(loc) and T.distance2D(loc,p)<=8 and math.abs(loc.y-p.y)<=10
 end
+local function navigable(world,c,p)
+ return Live.call(world.navmesh,'getPositionValid',p)==true and Live.call(c,'pathExists',p)==true
+end
+local function projectPost(world,c,p)
+ if navigable(world,c,p)then return p end
+ -- Tilt/height rounding can put a recorded post just off the navmesh. Adjust
+ -- only the destination height, within the same floor, never any furniture.
+ for _,dy in ipairs({1,-1,2,-2,4,-4,8,-8})do
+  local candidate=Live.copy(p);candidate.y=p.y+dy
+  if navigable(world,c,candidate)then return candidate end
+ end
+end
 function M.tick(s,ms,b)
  local d=s.duty or {members={},nextRoute=0};s.duty=d
  local world=getGameWorld();local now=s.now or Live.clock()
@@ -124,15 +136,19 @@ function M.tick(s,ms,b)
     elseif routeTarget and not scope(s,b,p) then
      Goals.clearRoutine(m.char);d.route=nil;d.nextRoute=now+1;emit(s,r,'ROUTE_REJECTED','member='..m.key)
     else
+     if not routeTarget then
+      local projected=projectPost(world,m.char,p)
+      if projected then p=projected end
+     end
      local at=reached(m.char,p)
      -- Validate real engine navigation before creating a movement goal. No teleport fallback.
-     if not at and (Live.call(world.navmesh,'getPositionValid',p)~=true or Live.call(m.char,'pathExists',p)~=true) then
+     if not at and not navigable(world,m.char,p) then
       Goals.clearRoutine(m.char);emit(s,r,'POST_UNREACHABLE','member='..m.key..' point='..T.fmt(p))
       if routeTarget then d.index=d.index%#d.route+1 end
      else
       local ok,why=Goals.routine(m.char,p,at)
-      if ok then
-       assigned=assigned+1
+      -- Recovery also works if a native binding rejects the goal. A failed
+      -- registration must not make the proven delivery movement unreachable.
        if not at then
         local current=Live.call(m.char,'getPosition')
         if not r.target or T.distance2D(r.target,p)>1 then r.lastMoveAt=nil;r.retries=0;r.target=Live.copy(p)end
@@ -146,8 +162,10 @@ function M.tick(s,ms,b)
          Log.console('NPC_POST_RECOVERY member='..m.key..' attempt='..r.retries..'/3 native_move='..tostring(called)..' '..tostring(err or ''))
         end
        else r.lastMoveAt=nil;r.lastMovePos=nil;r.retries=0 end
+      if ok then
+       assigned=assigned+1
        emit(s,r,at and 'AT_POST' or 'MOVING_TO_POST','member='..m.key..' point='..T.fmt(p)..' floor='..tostring(floor or 'street'))
-      else emit(s,r,'GOAL_FAILED','member='..m.key..' '..tostring(why)) end
+      else emit(s,r,at and 'AT_POST_HOLD_UNAVAILABLE' or 'GOAL_FAILED','member='..m.key..' '..tostring(why)) end
      end
     end
    end

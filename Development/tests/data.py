@@ -41,6 +41,10 @@ for n in range(8200,8205):
   for sid in [b'1360-gamedata.base',b'7603-KenshiShop.mod',b'51395-rebirth.mod']:
    assert (sid,0,24,0) in goals
   assert all(sid not in {b'8000-KenshiShop.mod',b'8001-KenshiShop.mod',b'8002-KenshiShop.mod',b'8003-KenshiShop.mod',b'8004-KenshiShop.mod',b'8005-KenshiShop.mod'} for sid,*_ in goals)
+for n in range(8300,8305):
+ r=new[f'{n}-KenshiShop.mod'.encode()];previous=new[f'{n-100}-KenshiShop.mod'.encode()]
+ assert r['name'].startswith(b'KS83 ')
+ assert r['extra']==previous['extra'] # Emergency care and native idle preserved.
 for sid,r in old.items():
  if r['typecode'] in [0,21]:assert new[sid]==r,('Building/furniture data changed',sid)
 assert dict(new[b'303-KenshiShop.mod']['extra'])[b'vendors']==[(b'1502-gamedata.base',100,0,0)]
@@ -54,3 +58,13 @@ protected=[p for p in files if '/Building/' in p or p.startswith('KenshiShop/scr
 for name in protected:
  assert Path(name).read_bytes()==subprocess.check_output(['git','show','v0.3.0-alpha.81:'+name]),name
 print('PASS all physical building modules and furniture ownership/restore files identical to alpha.81')
+
+# The alpha.83 update may add versioned AI packages, but must leave every
+# existing alpha.82 binary record and all physical Lua modules unchanged.
+import tempfile
+with tempfile.TemporaryDirectory() as tmp:
+ path=Path(tmp)/'alpha82.mod'
+ path.write_bytes(subprocess.check_output(['git','show','v0.3.0-alpha.82:KenshiShop/KenshiShop.mod']))
+ prior=km.ler(path)
+ for r in prior['records']:assert new[r['strid']]==r,('alpha.82 record changed',r['strid'])
+print('PASS every alpha.82 binary record preserved, new versioned packages retain the original care tasks')

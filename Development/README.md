@@ -30,3 +30,26 @@ texlua tests/duty.lua ../KenshiShop/scripts
 ```
 
 `tests/data.py` now additionally validates alpha.82 native packages and compares physical building/furniture modules with the repository's `v0.3.0-alpha.81` tag. Run it from the repository root as CI does.
+
+## alpha.83
+
+`python Development/build_alpha83.py /path/to/alpha82/KenshiShop.mod KenshiShop/KenshiShop.mod`
+
+Adds only five versioned packages so saved squads can migrate and restock once.
+The shop IDs were cross-checked against the user's `Kenshi_Shops_Offline(1).zip`,
+whose HTML shop index identifies Scraphouse 56154-rebirth.mod, Mechanical Shop
+44855-rebirth.mod, and vendor lists 1502-gamedata.base, 49375-rebirth.mod and
+56149-rebirth.mod. The uploaded reference's furniture editing instructions are
+not part of this change. The reference and embedded third-party pictures are
+not redistributed in the mod.
+
+The old addGoal binding requires a non-null RootObjectBase. Location-only goals
+use the character as a temporary carrier and then clear the copied Tasker.subject
+hand before setting the location. KenshiLua's Tasker getter uses HandBinding::push
+(pushValue<hand>), and the setter copies it back; the character handle is never
+nullified. Tests deliberately reject nil subjects and check that location-only
+tasks retain no self-target. Native API source: Genpretz/KenshiLua,
+src/Bindings/Kenshi/TaskerBinding.cpp and Util/HandBinding.cpp.
+
+The native engine cannot be run here. Mock tests do not establish actual navmesh
+movement, dialogue availability, generated stock quality or rare artifact restock.
