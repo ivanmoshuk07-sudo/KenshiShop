@@ -53,3 +53,30 @@ src/Bindings/Kenshi/TaskerBinding.cpp and Util/HandBinding.cpp.
 
 The native engine cannot be run here. Mock tests do not establish actual navmesh
 movement, dialogue availability, generated stock quality or rare artifact restock.
+
+## alpha.84
+
+`python Development/build_alpha84.py /path/to/alpha83/KenshiShop.mod KenshiShop/KenshiShop.mod`
+
+Removes the scripted duty movement/combat controller. Native FCS routines use
+positive weights; urgent finite care tasks keep zero weights. WANDER_TOWN=37,
+FOLLOW_SQUADLEADER=141 and PROTECT_ALLIES_STAY_IN_TOWN=288 are checked against
+KenshiLua EnumsReference. A native autonomous patrol is not an exact copy of a
+mercenary contract. No route confinement guarantee is made without a game test.
+
+NativeNodes uses RootObjectFactory.createLocationNode, not createBuilding.
+It registers stable per-building node IDs with Building.addUsageNode. Nodes use
+the original post coordinates; physical furniture and layout modules are intact.
+LocationNode is only lightuserdata in KenshiLua, so in-engine node selection and
+zone unload/reload lifecycle still need validation. No unsupported dereference
+or raw memory access is used.
+
+Stock grades are faction-scoped. The custom merchant faction now has persistent
+Skeletons/Armour King weights, also synchronized to its runtime Faction.getData.
+Original faction 42088-rebirth.mod is read-only. This replaces temporary borrowed
+weights that did not cover independent engine refreshes. Default grade weights
+0,0,2,80,110,50: https://kenshi.fandom.com/wiki/Armour_King%27s_Shop
+Native routine weight semantics: https://kenshi.wiki/ai-goals
+Bar vendor IDs and contents come from the supplied offline reference.
+
+Release CI now passes --full-only to tools/package_release.py.

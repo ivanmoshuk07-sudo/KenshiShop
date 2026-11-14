@@ -10,7 +10,7 @@ old={r['strid']:r for r in a['records']};new={r['strid']:r for r in b['records']
 assert len(old)==len(a['records']) and len(new)==len(b['records'])
 assert all(sid in new for sid in old)
 changed={sid for sid in old if old[sid]!=new[sid]}
-expected={f'{i}-KenshiShop.mod'.encode() for i in [300,303,305,307,309,7310]}
+expected={f'{i}-KenshiShop.mod'.encode() for i in [300,303,305,307,309,400,7310]}
 assert changed==expected,changed
 for r in b['records']:
  for cat,items in r['extra']:
@@ -66,5 +66,25 @@ with tempfile.TemporaryDirectory() as tmp:
  path=Path(tmp)/'alpha82.mod'
  path.write_bytes(subprocess.check_output(['git','show','v0.3.0-alpha.82:KenshiShop/KenshiShop.mod']))
  prior=km.ler(path)
- for r in prior['records']:assert new[r['strid']]==r,('alpha.82 record changed',r['strid'])
-print('PASS every alpha.82 binary record preserved, new versioned packages retain the original care tasks')
+ for r in prior['records']:
+  if r['strid'] not in {b'300-KenshiShop.mod',b'400-KenshiShop.mod'}:
+   assert new[r['strid']]==r,('unrelated alpha.82 record changed',r['strid'])
+print('PASS unrelated alpha.82 records preserved')
+
+assert dict(new[b'300-KenshiShop.mod']['extra'])[b'vendors']==[(b'1973-gamedata.base',100,0,0),(b'44862-rebirth.mod',100,0,0)]
+assert [km.campo(new[b'400-KenshiShop.mod'],'long',f'armors {i}') for i in range(6)]==[0,0,2,80,110,50]
+for n in range(8400,8405):
+ r=new[f'{n}-KenshiShop.mod'.encode()]
+ for cat in [b'Leader AI Goals',b'Squad AI Goals']:
+  goals=dict(r['extra'])[cat]
+  for care in [b'1360-gamedata.base',b'7603-KenshiShop.mod',b'51395-rebirth.mod']:
+   assert (care,0,24,0) in goals
+  enums={km.campo(new[sid],'long','enum'):weight for sid,start,end,weight in goals if sid in new}
+  assert not ({1,30,5,16,21,144} & set(enums)),enums
+  for enum in [20,37,141,268,86,153]:
+   if enum in enums:assert enums[enum]>0,(n,enum,'routine weight must not be an urgent zero override')
+  if n<8402:assert 20 in enums
+  elif n<8404:assert 268 in enums and 288 in enums
+  elif cat==b'Leader AI Goals':assert 37 in enums and 288 in enums
+  else:assert 141 in enums and 288 in enums
+print('PASS autonomous native roles, positive routine weights, native care, full bar lists and persistent Armour King grades')

@@ -1,18 +1,20 @@
 -- Native FCS goals: role work and emergency care. Lua only performs the handoff.
 local Live=require('Core.NPC.LiveState')
 local Log=require('Diagnostics')
+local Nodes=require('Core.NPC.NativeNodes')
+local Goals=require('Core.NPC.NativeGoals')
 local M={}
 function M.isWorkingPackage(cfg,name)
  local _,label=M.package(cfg)
- return label~=nil and (name==label or name==label:gsub('KS83','KS82') or name==({trader=(cfg.shop=='bar' or cfg.shop=='robotics') and 'KS Native Trader 24h' or 'KS Native Trader 06-23',guard='KS Native Indoor guards',chief='KS Native Police chief',patrol='KS Native Town patrol'})[cfg.role])
+ return label~=nil and (name==label or name==label:gsub('KS84','KS83') or name==label:gsub('KS84','KS82') or name==({trader=(cfg.shop=='bar' or cfg.shop=='robotics') and 'KS Native Trader 24h' or 'KS Native Trader 06-23',guard='KS Native Indoor guards',chief='KS Native Police chief',patrol='KS Native Town patrol'})[cfg.role])
 end
 function M.package(cfg)
  if cfg.role=='trader' then
-  if cfg.shop=='bar' or cfg.shop=='robotics' then return '8300-KenshiShop.mod','KS83 Trader 24h' end
-  return '8301-KenshiShop.mod','KS83 Trader 06-23'
- elseif cfg.role=='guard' then return '8302-KenshiShop.mod','KS83 Indoor guards'
- elseif cfg.role=='chief' then return '8303-KenshiShop.mod','KS83 Police chief'
- elseif cfg.role=='patrol' then return '8304-KenshiShop.mod','KS83 Town patrol' end
+  if cfg.shop=='bar' or cfg.shop=='robotics' then return '8400-KenshiShop.mod','KS84 Trader 24h' end
+  return '8401-KenshiShop.mod','KS84 Trader 06-23'
+ elseif cfg.role=='guard' then return '8402-KenshiShop.mod','KS84 Indoor guards'
+ elseif cfg.role=='chief' then return '8403-KenshiShop.mod','KS84 Police chief'
+ elseif cfg.role=='patrol' then return '8404-KenshiShop.mod','KS84 Town patrol' end
 end
 local function say(s,event,why)
  Log.console('NPC_ROLE_'..event..' shop='..s.cfg.shop..' role='..s.cfg.role..' building='..s.key..' '..tostring(why or ''))
@@ -39,6 +41,7 @@ function M.ensure(s,ms)
   if mate.key==key then found=true end
   local busy,why=Live.halted(mate.char)
   local orders=Live.call(mate.char,'getOrdersReciever')
+  if Live.call(orders,'hasOrders')~=false then busy=true;why='NATIVE_ORDERS_OR_UNKNOWN'end
   local active=Live.call(Live.call(orders,'getCurrentGoal'),'key')
   if ({[25]=true,[57]=true,[58]=true,[60]=true,[105]=true,[142]=true,[148]=true})[active] then busy=true;why='NATIVE_CARE_'..active end
   local carried=Live.call(mate.char,'getCarryingObject')
@@ -55,7 +58,32 @@ function M.ensure(s,ms)
  local bb=Live.call(lead,'getBlackboard')
  local old=bb and Live.call(bb,'getCurrentAIPackageName')
  if type(old)~='string' then return fail(s,r,'BLACKBOARD_UNAVAILABLE') end
+ local nodeOK,nodeWhy=Nodes.ensure(s,s.building)
+ if not nodeOK then
+  if r.nodeWhy~=nodeWhy then say(s,'WAIT_NODES',nodeWhy);r.nodeWhy=nodeWhy end
+  return false
+ end
  local world=getGameWorld()
+ -- Native town goals must use this settlement, including restored squads.
+ local town=Live.call(s.building,'getTown')
+ if not town then return fail(s,r,'HOME_TOWN_UNAVAILABLE')end
+ local ownList={owns}
+ for _,mate in ipairs(ms)do
+  local memberOwns=Live.call(mate.char,'getOwnerships')
+  if not memberOwns then return fail(s,r,'MEMBER_OWNERSHIPS_UNAVAILABLE')end
+  ownList[#ownList+1]=memberOwns
+ end
+ local homeTown=Live.call(Live.call(town,'getHandle'),'toString')
+ if not homeTown then return fail(s,r,'HOME_TOWN_HANDLE_UNAVAILABLE')end
+ for _,o in ipairs(ownList)do
+  local current=Live.call(Live.call(o._homeTown,'getHandle'),'toString')
+  if current~=homeTown then
+   local yes,err=pcall(o.setHomeTown,o,town,1)
+   if not yes or Live.call(Live.call(o._homeTown,'getHandle'),'toString')~=homeTown then return fail(s,r,'HOME_TOWN_ASSIGN '..tostring(err))end
+  end
+ end
+ local targetOK,targetError=pcall(function()bb.targetTown=town end)
+ if not targetOK then return fail(s,r,'TARGET_TOWN_ASSIGN '..tostring(targetError))end
  local data=world and Live.call(world.gamedata,'getData',id,72)
  if not data then return fail(s,r,'PACKAGE_MISSING '..id) end
  if old~=label then
@@ -67,12 +95,17 @@ function M.ensure(s,ms)
  -- Verify and finish every member even if an earlier attempt partially succeeded.
  for _,mate in ipairs(ms)do
   if not r.setup[mate.key] then
+   -- One-time cleanup of only alpha.82/.83 goals marked by this mod.
+   -- Native goals and player orders are never globally cleared.
+   for _,task in ipairs({1,30,5})do
+    local _,removed=Goals.remove(mate.char,task)
+    local active,orders=Goals.current(mate.char)
+    if removed and active==task then Live.call(orders,'clearCurrentGoal',false)end
+   end
    local yes,err=pcall(mate.char.setupPlatoonAI,mate.char)
    if not yes then return fail(s,r,'SETUP_FAILED '..mate.key..' '..tostring(err)) end
    r.setup[mate.key]=true
    local orders=Live.call(mate.char,'getOrdersReciever')
-   local active=Live.call(Live.call(orders,'getCurrentGoal'),'key')
-   if ({[1]=true,[19]=true,[20]=true,[36]=true,[38]=true,[268]=true})[active] then Live.call(orders,'clearCurrentGoal',false)end
    if orders and (s.cfg.role=='guard' or s.cfg.role=='patrol' or s.cfg.role=='chief')then pcall(function()orders.aggroMode=1 end)end
    Live.call(orders,'setNeedGOAP')
   end

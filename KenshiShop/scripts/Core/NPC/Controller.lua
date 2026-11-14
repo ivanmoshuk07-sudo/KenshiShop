@@ -567,7 +567,7 @@ function M.new(cfg)
    return false,'EXISTING_SQUAD '..tostring(reason)
   end
   local catalogOK,catalogWhy=Catalog.prepare(cfg)
-  if not catalogOK then Log.error('NPC_CATALOG82_PENDING shop='..cfg.shop..' '..tostring(catalogWhy)..' delivery_continues') end
+  if not catalogOK then Log.error('NPC_CATALOG84_PENDING shop='..cfg.shop..' '..tostring(catalogWhy)..' delivery_continues') end
   local good,pre=pcall(T.preflight,b,cfg)
   if not good then return false,'PREFLIGHT_FAILED '..tostring(pre) end
   Log.console('NPC_PREFLIGHT shop='..cfg.shop..' squad='..cfg.role..' building='..key..' template='..cfg.template..' count='..cfg.count..' outside='..pre.method..' at='..T.fmt(pre.spawn))

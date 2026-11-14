@@ -77,7 +77,7 @@ function M.spawn(p,building,config)
  return p.world.theFactory:createRandomSquad(
  p.faction,p.spawn,p.town,config.count,building,p.template,
  nil,nil,nil,true,building:getHandle(),p.town,1.0,
- -- All groups are residents of their home city; the patrol gets an explicit inside-city route.
+ -- All groups are residents of their home city; native patrol uses the home town.
  ((SquadType and SquadType.SQ_RESIDENT) or 1),false)
 end
 -- KenshiLua exposes world.charUpdateListMain as iterable ogre_unordered_set<Character*>.

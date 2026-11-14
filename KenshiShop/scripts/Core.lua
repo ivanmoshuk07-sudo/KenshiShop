@@ -3,7 +3,7 @@ local Registry=require('Core.Registry')
 local Log=require('Diagnostics')
 local Construction=require('Construction')
 local Ownership=require('Core.Ownership.Registry')
-local M={version='0.3.0-alpha.83-native-goals-catalog'}
+local M={version='0.3.0-alpha.84-native-autonomy'}
 local started=false
 local npcLoadedLogged={}
 function M.start()
@@ -22,6 +22,7 @@ function M.start()
   if not ok then Log.error('CONSTRUCTION_DISPATCH '..tostring(errorText)) end
  end)
  local ok,err=pcall(Events.on,'GameWorld::resetGame',function()
+  require('Core.NPC.NativeNodes').resetSession()
   Registry.resetSession()
   Ownership.resetSession()
   require('Core.Ownership.NPCFurnitureRestore').resetSession()

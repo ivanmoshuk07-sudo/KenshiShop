@@ -1,0 +1,21 @@
+{
+  ".github/workflows/release.yml": "a6529b9f5e4a5f9bf0ad06ce8eea6fb2821ab91d149aaa6055ce24da6bb98dde",
+  "Development/README.md": "3fa86aba537f1d80a19ab3470e2c4c59fd9749f0c5a6596946126c3e8b5d3e5b",
+  "Development/build_alpha84.py": "5ed3e7cf8a1a5c8452a2ed07a2eb3d4224dcee300630aed0e454ab50635b4311",
+  "Development/tests/data.py": "4106ee9112b700949b4daece42caec26173af0d6984704e6381de2311ab7bb86",
+  "Development/tests/duty.lua": "9e4cfdd159d667bda49b8d8edf49b92d807d775da4996204e487127274672351",
+  "Development/tests/runtime.lua": "e44961d1c735a424d43b4c074c7e9f4b04b3b83a2f7ae3b296a51bb0316192b7",
+  "KenshiShop/KenshiShop.mod": "1d17e374199a5e9fd46bd6b38d7c93e5a26b9b192f2d7507411b7fdcf679d075",
+  "KenshiShop/scripts/Core.lua": "ee46ce0c26d9cda6806e9730b1034bfd8cc6a575ab939168f9189057a6d79e25",
+  "KenshiShop/scripts/Core/NPC/Catalog.lua": "78eeec3bf43e74e34d02525a1a8dcc7e594244c847e4441464cb43cbd9f9216a",
+  "KenshiShop/scripts/Core/NPC/Controller.lua": "fa4e44a36dc5828149e92cc5804218b7d0d256309ab935eddc7ebc353426629e",
+  "KenshiShop/scripts/Core/NPC/Duty.lua": "c79f837044f483f9c2fcc1b2412f7fa94cd323317964bb1ef25848df54a92c42",
+  "KenshiShop/scripts/Core/NPC/NativeNodes.lua": "67a84fac8395497ac655334da43c5f8db08b7dbf53b0be663fa29264cd7f8219",
+  "KenshiShop/scripts/Core/NPC/RoleAI.lua": "849e95a7be0bf038e9787da8ff7f0404d727694280d558b1fbb9ccb29a94ff28",
+  "KenshiShop/scripts/Core/NPC/Transport.lua": "abb3f4278017deda6db32ecd1d33aa8384ac47217643eb9c68a74e867a3adb67",
+  "KenshiShop/scripts/KenshiLuaConsole.lua": "63a1801dcb00e22069e17388d86452451cdb4cfadc057b219a8f7d005c09994c",
+  "README.md": "39a079ca002a8a616a8f07110bd8487e3497b6e1062bbb95883276093f473229",
+  "README_ALPHA84_RU.md": "7a76205f67a5dbbf7dbe58956d548fca46f0438f341eab17f9f7f2b440d1826e",
+  "RELEASE_NOTES.md": "33c9132edf9f889751912d3ce43401ff26961fc1157438fa681c3b6e742386ac",
+  "tools/package_release.py": "70e3b7984ad3c129f6298278a53a033e0f93df259733530546e72ac907a2562b"
+}

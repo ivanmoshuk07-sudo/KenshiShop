@@ -1,7 +1,7 @@
 """Package tracked mod files; unchanged assets stay out of the update ZIP."""
 from pathlib import Path
 import argparse, subprocess, zipfile, hashlib
-p=argparse.ArgumentParser();p.add_argument('--tag',required=True);p.add_argument('--previous-tag');args=p.parse_args()
+p=argparse.ArgumentParser();p.add_argument('--tag',required=True);p.add_argument('--previous-tag');p.add_argument('--full-only',action='store_true');args=p.parse_args()
 root=Path(__file__).resolve().parents[1];out=root/'dist';out.mkdir(exist_ok=True)
 def git(*cmd):return subprocess.check_output(['git',*cmd],cwd=root).decode().splitlines()
 def payload(name):return name.startswith(('KenshiShop/','KenshiShop_LegendaryCompat/','Development/')) or (name.startswith('README_ALPHA') and name.endswith('_RU.md')) or (name.startswith('CHANGED_FILES_ALPHA') and name.endswith('.json'))
@@ -12,7 +12,9 @@ if not previous:
 changed=set(git('diff','--name-only','--diff-filter=ACMRT',previous,'HEAD')) if previous else set(files)
 version=args.tag.removeprefix('v')
 archives=[]
-for label,names in [('FULL',files),('UPDATE', [n for n in files if n in changed])]:
+packages=[('FULL',files)]
+if not args.full_only:packages.append(('UPDATE',[n for n in files if n in changed]))
+for label,names in packages:
  path=out/f'KenshiShop_{version}_{label}.zip'
  with zipfile.ZipFile(path,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=6) as z:
   for name in names:z.write(root/name,name)

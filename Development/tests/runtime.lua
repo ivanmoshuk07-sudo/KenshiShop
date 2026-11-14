@@ -5,13 +5,18 @@ local passed=0
 local function test(name,fn) fn();passed=passed+1;print('PASS '..name)end
 local Log={console=function()end,error=function()end}
 package.loaded.Diagnostics=Log
+package.loaded['Core.NPC.NativeNodes']={ensure=function()return true end}
 local Live=require('Core.NPC.LiveState')
 local Work=require('Core.NPC.RoleAI')
 local label,replaceCount,setupCount,failMember,busy,carrying
+local town={getHandle=function()return {toString=function()return 'town'end}end}
+local owns={_homeBuilding={toString=function()return 'home'end},_homeTown=town}
 local bb={getCurrentAIPackageName=function()return label end,
  replaceAIPackage=function(_,data)label=data.name;replaceCount=replaceCount+1 end}
 local function member(key)
  local c={getHandle=function()return {toString=function()return key end}end,
+  getOwnerships=function()return owns end,
+  getOrdersReciever=function()return {goals={},hasOrders=function()return false end}end,
   getBlackboard=function()return bb end,
   getCarryingObject=function()return {isNull=function()return not carrying end}end,
   setupPlatoonAI=function() if failMember==key then error('temporarily unavailable')end;setupCount=setupCount+1 end}
@@ -20,17 +25,17 @@ local function member(key)
 end
 local a,b=member('leader'),member('mate')
 local ap={getSquadLeader=function()return a.char end,getSquadSize=function()return 2 end}
-local p={getActivePlatoon=function()return ap end,getOwnerships=function()return {_homeBuilding={toString=function()return 'home'end}}end}
-local gm={getData=function(_,id)return {name='KS83 Indoor guards'}end}
+local p={getActivePlatoon=function()return ap end,getOwnerships=function()return owns end}
+local gm={getData=function(_,id)return {name='KS84 Indoor guards'}end}
 function getGameWorld()return {gamedata=gm}end
 local function state()
  label='KS Medic Robotics Rescue';replaceCount=0;setupCount=0;failMember=nil;busy=false;carrying=false
- return {cfg={shop='bar',role='guard',count=2},key='home',platoon=p}
+ return {cfg={shop='bar',role='guard',count=2},key='home',platoon=p,building={getTown=function()return town end}}
 end
 test('roles choose 24h/day/guard/chief/patrol packages',function()
- for _,x in ipairs({{'bar','trader','8300'},{'robotics','trader','8300'},{'engineering','trader','8301'},
-  {'weapons','trader','8301'},{'armour','trader','8301'},{'bar','guard','8302'},
-  {'police','chief','8303'},{'police','patrol','8304'}})do
+ for _,x in ipairs({{'bar','trader','8400'},{'robotics','trader','8400'},{'engineering','trader','8401'},
+  {'weapons','trader','8401'},{'armour','trader','8401'},{'bar','guard','8402'},
+  {'police','chief','8403'},{'police','patrol','8404'}})do
   local id=Work.package({shop=x[1],role=x[2]});assert(id==x[3]..'-KenshiShop.mod')
  end
 end)
@@ -44,18 +49,31 @@ end)
 test('carrying a rescued character defers handoff',function()
  local s=state();carrying=true;assert(not Work.ensure(s,{a,b}));assert(replaceCount==0)
 end)
+test('native/player orders defer package replacement without using retry budget',function()
+ local s=state();local old=a.char.getOrdersReciever
+ a.char.getOrdersReciever=function()return {hasOrders=function()return true end}end
+ assert(not Work.ensure(s,{a,b}));assert(replaceCount==0 and s.work.tries==0)
+ a.char.getOrdersReciever=old;assert(Work.ensure(s,{a,b}))
+end)
+test('an incorrect restored home town is repaired before native wandering is enabled',function()
+ local s=state();owns._homeTown={getHandle=function()return {toString=function()return 'wrong-town'end}end}
+ local calls=0
+ owns.setHomeTown=function(self,t,kind)assert(t==town and kind==1);self._homeTown=t;calls=calls+1 end
+ assert(Work.ensure(s,{a,b}));assert(calls==1 and bb.targetTown==town)
+ owns.setHomeTown=nil
+end)
 test('partial member setup retries without replacing package again',function()
  local s=state();failMember='mate';assert(not Work.ensure(s,{a,b}));assert(setupCount==1)
  failMember=nil;assert(Work.ensure(s,{a,b}));assert(replaceCount==1 and setupCount==2)
 end)
 test('saved matching package still finishes member setup',function()
- local s=state();label='KS83 Indoor guards';assert(Work.ensure(s,{a,b}));assert(replaceCount==0 and setupCount==2)
+ local s=state();label='KS84 Indoor guards';assert(Work.ensure(s,{a,b}));assert(replaceCount==0 and setupCount==2)
 end)
 test('saved alpha.81 and alpha.82 packages are recognized, then migrated once',function()
- for _,old in ipairs({'KS Native Indoor guards','KS82 Indoor guards'})do
+ for _,old in ipairs({'KS Native Indoor guards','KS82 Indoor guards','KS83 Indoor guards'})do
   local s=state();label=old
   assert(Work.isWorkingPackage(s.cfg,label));assert(Work.ensure(s,{a,b}))
-  assert(s.work.upgraded and label=='KS83 Indoor guards' and replaceCount==1)
+  assert(s.work.upgraded and label=='KS84 Indoor guards' and replaceCount==1)
   assert(Work.ensure(s,{a,b}) and replaceCount==1)
  end
 end)
@@ -78,7 +96,10 @@ local own=data('307-KenshiShop.mod','KS Weapons',{{'fallback',100,0,0}})
 local native=data('native','Scrap House',{{'scraplist',80,2,3}})
 own.idata['gear artifacts base value']=500;native.idata['gear artifacts base value']=0;native.idata['vendor money']=100000;native.fdata['vendors refresh time']=24
 local fallback=data('fallback','weapons',{},49);local scrap=data('scraplist','Scraphouse stock',{},49)
-local records={[own.stringID]=own,native=native,fallback=fallback,scraplist=scrap}
+local faction=data('400-KenshiShop.mod','Our faction',{},10)
+local skeletons=data('42088-rebirth.mod','Skeletons',{},10)
+for i,v in ipairs({0,0,2,80,110,50})do skeletons.idata['armors '..(i-1)]=v end
+local records={[own.stringID]=own,native=native,fallback=fallback,scraplist=scrap,[faction.stringID]=faction,[skeletons.stringID]=skeletons}
 gm={mainList={[own]=true,[native]=true},getData=function(_,sid)return records[sid]end}
 test('catalog copies native stock refs, weights and quality; source unchanged',function()
  assert(Catalog.prepare({role='trader',shop='weapons',template=own.stringID}))
@@ -115,5 +136,21 @@ test('stable native IDs work with translated names and no squad enumeration',fun
  assert(eng.refs[2][1]=='49375-rebirth.mod' and eng.refs[2][2]==30)
  assert(eng.refs[3][1]=='56149-rebirth.mod' and eng.refs[3][2]==7)
  assert(#scrap.refs==3 and #mech.refs==1 and scrap.lists['special items'][1][2]==2)
+end)
+test('bar contains native food, drink, medical and expedition lists, donor unchanged',function()
+ local original=data('58699-rebirth.mod','Бар Края Мира',{{'1973-gamedata.base',100,0,0},{'44862-rebirth.mod',80,2,3},{'posters',10,0,0}})
+ records[original.stringID]=original
+ for _,sid in ipairs({'1973-gamedata.base','44862-rebirth.mod','posters'})do records[sid]=data(sid,'Набор',{},49)end
+ local bar=data('bar84','Свой бар',{{'1973-gamedata.base',100,0,0}});records.bar84=bar
+ local ok,profile=Catalog.prepare({role='trader',shop='bar',template='bar84'})
+ assert(ok and profile.source==original.stringID and #bar.refs==3)
+ assert(bar.refs[2][1]=='44862-rebirth.mod' and bar.refs[2][2]==80 and bar.refs[2][3]==2)
+ assert(#original.refs==3 and original.refs[2][1]=='44862-rebirth.mod')
+end)
+test('bar cannot report ready if its required travel supplies record is absent',function()
+ local record=records['44862-rebirth.mod'];records['44862-rebirth.mod']=nil
+ records['missing-bar84']=data('missing-bar84','Бар',{{'1973-gamedata.base',100,0,0}})
+ assert(not Catalog.prepare({role='trader',shop='bar',template='missing-bar84'}))
+ records['44862-rebirth.mod']=record
 end)
 print('Behavioral tests passed: '..passed)

@@ -38,10 +38,10 @@ jobs:
           else
             echo "tag=dev-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           fi
-      - name: Package full mod and update
+      - name: Package complete mod
         env:
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
-        run: python tools/package_release.py --tag "$RELEASE_TAG"
+        run: python tools/package_release.py --tag "$RELEASE_TAG" --full-only
       - uses: actions/upload-artifact@v4
         with:
           name: KenshiShop-${{ steps.version.outputs.tag }}
