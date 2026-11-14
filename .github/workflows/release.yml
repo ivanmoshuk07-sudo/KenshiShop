@@ -23,10 +23,11 @@ jobs:
           lua Development/tests/runtime.lua KenshiShop/scripts
           lua Development/tests/controller.lua KenshiShop/scripts
           lua Development/tests/duty.lua KenshiShop/scripts
-      - name: Validate binary data against the supplied alpha.80
+          lua Development/tests/residence85.lua KenshiShop/scripts
+      - name: Validate binary data and original node coordinates against alpha.84
         run: |
-          git show v0.3.0-alpha.80:KenshiShop/KenshiShop.mod > /tmp/kenshishop-alpha80.mod
-          python Development/tests/data.py /tmp/kenshishop-alpha80.mod KenshiShop/KenshiShop.mod
+          git show v0.3.0-alpha.84:KenshiShop/KenshiShop.mod > /tmp/kenshishop-alpha84.mod
+          python Development/tests/data85.py /tmp/kenshishop-alpha84.mod KenshiShop/KenshiShop.mod
       - name: Choose the version
         id: version
         env:
@@ -45,10 +46,12 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: KenshiShop-${{ steps.version.outputs.tag }}
-          path: dist/*
+          path: |
+            dist/*_FULL.zip
+            dist/SHA256SUMS.txt
       - name: Publish prerelease on a version tag
         if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
-        run: gh release create "$RELEASE_TAG" dist/* --title "KenshiShop $RELEASE_TAG" --prerelease --notes-file RELEASE_NOTES.md
+        run: gh release create "$RELEASE_TAG" dist/*_FULL.zip dist/SHA256SUMS.txt --title "KenshiShop $RELEASE_TAG" --prerelease --notes-file RELEASE_NOTES.md

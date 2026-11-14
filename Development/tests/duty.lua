@@ -10,14 +10,14 @@ function getGameWorld()return world end
 local function fixture(shop)
  Nodes.resetSession();local calls={created=0,attached=0,physical=0};local ids={}
  world={gamedata={getData=function(_,sid,kind)assert(kind==0);return {stringID=sid}end},theFactory={}}
- local faction={}
- local b={getPosition=function()return {x=20,y=10,z=30}end,getOrientation=function()return {w=1,x=0,y=0,z=0}end,
+ local faction={};local rootToken={}
+ local b={getRootNode=function()return rootToken end,getPosition=function()return {x=20,y=10,z=30}end,getOrientation=function()return {w=1,x=0,y=0,z=0}end,
   getScale=function()return 1 end,isPhysical=function()return true end,getFaction=function()return faction end,
   updateUsageNodes=function()end,forceValidUsageNodesValidation=function()end}
  function b:addUsageNode(id)calls.attached=calls.attached+1;assert(ids[id]);ids[id].attached=true end
  function world.theFactory:createLocationNode(auto,data,pos,home,owner,rot,save,id)
   assert(auto and home==b and owner==faction and save==nil and rot.w and pos.x)
-  assert(data.stringID=='1180-gamedata.base' or data.stringID=='1186-gamedata.base')
+  assert(data.stringID=='1180-gamedata.base' or data.stringID=='1186-gamedata.base' or data.stringID=='1184-gamedata.base')
   assert(not ids[id],'duplicate node ID');ids[id]={position=pos};calls.created=calls.created+1;return {}
  end
  function world.theFactory:createBuilding()calls.physical=calls.physical+1;error('furniture mutation')end
@@ -26,18 +26,20 @@ end
 test('trader and separate guard share exactly one native node set, zero furniture calls',function()
  local s,b,calls,ids=fixture();assert(Nodes.ensure(s,b));s.cfg.role='guard'
  for i=1,100 do assert(Nodes.ensure(s,b))end
- assert(calls.created==3 and calls.attached==3 and calls.physical==0)
+ assert(calls.created==15 and calls.attached==15 and calls.physical==0)
  for _,v in pairs(ids)do assert(v.attached)end
 end)
 test('node positions transform existing posts into world space without moving furniture',function()
- local s,b,_,ids=fixture();assert(Nodes.ensure(s,b));local p=ids['KS84_NODE:home:1'].position
+ local s,b,_,ids=fixture();assert(Nodes.ensure(s,b));local p
+ for _,v in pairs(ids)do if math.abs(v.position.x-63.1220436)<0.0001 then p=v.position end end
+ assert(p)
  assert(math.abs(p.x-63.1220436)<0.0001 and math.abs(p.y-14.64026594)<0.0001)
 end)
 test('partial node attachment failure never recreates a successfully created node',function()
  local s,b,calls=fixture();local add=b.addUsageNode;local fail=true
  function b:addUsageNode(id)if fail then fail=false;error('temporarily unavailable')end;return add(self,id)end
  assert(not Nodes.ensure(s,b));assert(calls.created==1)
- assert(Nodes.ensure(s,b));assert(calls.created==3 and calls.attached==3)
+ assert(Nodes.ensure(s,b));assert(calls.created==15 and calls.attached==15)
 end)
 test('unloaded buildings defer without using the finite node failure budget',function()
  local s,b,calls=fixture();local physical=false;b.isPhysical=function()return physical end
@@ -50,8 +52,8 @@ test('unsupported native node API stops after three failures without a movement 
  for i=1,20 do assert(not Nodes.ensure(s,b))end
  assert(attempts==3 and calls.physical==0 and calls.created==0)
 end)
-test('native patrol needs no custom route, waypoints or post nodes',function()
- local s,b,calls=fixture('police');s.cfg.role='patrol';assert(Nodes.ensure(s,b));assert(calls.created==0)
+test('patrol shares all nine logical police nodes with the chief; no Lua route',function()
+ local s,b,calls=fixture('police');s.cfg.role='patrol';assert(Nodes.ensure(s,b));assert(calls.created==9)
 end)
 test('repeated duty audits only observe native care, work and combat; issue zero commands',function()
  local moves,goals,attacks,clears=0,0,0,0;local active=37

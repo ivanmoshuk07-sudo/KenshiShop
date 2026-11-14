@@ -1,0 +1,474 @@
+{
+  "1170-gamedata.base": {
+    "sid": "1170-gamedata.base",
+    "name": "Shopkeeper",
+    "type": 22,
+    "fields": {
+      "classification": 2,
+      "ending": 0,
+      "enum": 20,
+      "targeting": 0
+    },
+    "refs": {},
+    "provenance": {
+      "classification": "gamedata.base",
+      "ending": "gamedata.base",
+      "enum": "gamedata.base",
+      "targeting": "gamedata.base"
+    },
+    "sources": [
+      "gamedata.base"
+    ]
+  },
+  "1188-gamedata.base": {
+    "sid": "1188-gamedata.base",
+    "name": "Static guard- building",
+    "type": 22,
+    "fields": {
+      "classification": 2,
+      "ending": 0,
+      "enum": 38,
+      "targeting": 0
+    },
+    "refs": {},
+    "provenance": {
+      "classification": "gamedata.base",
+      "ending": "gamedata.base",
+      "enum": "gamedata.base",
+      "targeting": "gamedata.base"
+    },
+    "sources": [
+      "gamedata.base",
+      "rebirth.mod"
+    ]
+  },
+  "95534-rebirth.mod": {
+    "sid": "95534-rebirth.mod",
+    "name": "Static guard- building hidden indoors only",
+    "type": 22,
+    "fields": {
+      "classification": 2,
+      "ending": 0,
+      "enum": 268,
+      "targeting": 0
+    },
+    "refs": {},
+    "provenance": {
+      "classification": "rebirth.mod",
+      "ending": "rebirth.mod",
+      "enum": "rebirth.mod",
+      "targeting": "rebirth.mod"
+    },
+    "sources": [
+      "rebirth.mod"
+    ]
+  },
+  "965-gamedata.base": {
+    "sid": "965-gamedata.base",
+    "name": "Patrol hometown",
+    "type": 22,
+    "fields": {
+      "classification": 2,
+      "ending": 0,
+      "enum": 36,
+      "targeting": 0
+    },
+    "refs": {},
+    "provenance": {
+      "classification": "gamedata.base",
+      "ending": "gamedata.base",
+      "enum": "gamedata.base",
+      "targeting": "gamedata.base"
+    },
+    "sources": [
+      "gamedata.base"
+    ]
+  },
+  "3104-gamedata.base": {
+    "sid": "3104-gamedata.base",
+    "name": "Shop open up doors",
+    "type": 22,
+    "fields": {
+      "classification": 2,
+      "ending": 0,
+      "enum": 86,
+      "targeting": 0
+    },
+    "refs": {},
+    "provenance": {
+      "classification": "gamedata.base",
+      "ending": "gamedata.base",
+      "enum": "gamedata.base",
+      "targeting": "gamedata.base"
+    },
+    "sources": [
+      "gamedata.base"
+    ]
+  },
+  "2825-gamedata.base": {
+    "sid": "2825-gamedata.base",
+    "name": "Protect squad",
+    "type": 22,
+    "fields": {
+      "classification": 3,
+      "ending": 0,
+      "enum": 143,
+      "targeting": 1
+    },
+    "refs": {},
+    "provenance": {
+      "classification": "gamedata.base",
+      "ending": "gamedata.base",
+      "enum": "gamedata.base",
+      "targeting": "gamedata.base"
+    },
+    "sources": [
+      "gamedata.base"
+    ]
+  },
+  "1360-gamedata.base": {
+    "sid": "1360-gamedata.base",
+    "name": "Medic",
+    "type": 22,
+    "fields": {
+      "classification": 3,
+      "ending": 0,
+      "enum": 58,
+      "targeting": 1
+    },
+    "refs": {},
+    "provenance": {
+      "classification": "gamedata.base",
+      "ending": "gamedata.base",
+      "enum": "gamedata.base",
+      "targeting": "gamedata.base"
+    },
+    "sources": [
+      "gamedata.base"
+    ]
+  },
+  "51395-rebirth.mod": {
+    "sid": "51395-rebirth.mod",
+    "name": "rescue",
+    "type": 22,
+    "fields": {
+      "classification": 2,
+      "ending": 0,
+      "enum": 148,
+      "targeting": 0
+    },
+    "refs": {},
+    "provenance": {
+      "classification": "rebirth.mod",
+      "ending": "rebirth.mod",
+      "enum": "rebirth.mod",
+      "targeting": "rebirth.mod"
+    },
+    "sources": [
+      "rebirth.mod"
+    ]
+  },
+  "1535072-rebirth.mod": {
+    "sid": "1535072-rebirth.mod",
+    "name": "protect allies - dont leave town",
+    "type": 22,
+    "fields": {
+      "classification": 3,
+      "ending": 0,
+      "enum": 288,
+      "targeting": 1
+    },
+    "refs": {},
+    "provenance": {
+      "classification": "rebirth.mod",
+      "ending": "rebirth.mod",
+      "enum": "rebirth.mod",
+      "targeting": "rebirth.mod"
+    },
+    "sources": [
+      "rebirth.mod"
+    ]
+  },
+  "2824-gamedata.base": {
+    "sid": "2824-gamedata.base",
+    "name": "Shop",
+    "type": 72,
+    "fields": {
+      "clears existing jobs": 0,
+      "signal func": 2,
+      "unloaded func": 4
+    },
+    "refs": {
+      "Leader AI Goals": {
+        "1170-gamedata.base": [
+          6,
+          24,
+          80
+        ],
+        "2825-gamedata.base": [
+          0,
+          100,
+          0
+        ],
+        "3103-gamedata.base": [
+          0,
+          6,
+          0
+        ],
+        "3104-gamedata.base": [
+          6,
+          23,
+          0
+        ],
+        "12607-gamedata.base": [
+          0,
+          24,
+          0
+        ],
+        "46053-rebirth.mod": [
+          23,
+          6,
+          0
+        ],
+        "1360-gamedata.base": [
+          0,
+          24,
+          0
+        ]
+      },
+      "Squad AI Goals": {
+        "1188-gamedata.base": [
+          0,
+          100,
+          20
+        ],
+        "2825-gamedata.base": [
+          0,
+          100,
+          0
+        ],
+        "12607-gamedata.base": [
+          0,
+          24,
+          0
+        ],
+        "12609-gamedata.base": [
+          0,
+          24,
+          10
+        ],
+        "46053-rebirth.mod": [
+          0,
+          6,
+          0
+        ],
+        "3103-gamedata.base": [
+          0,
+          6,
+          0
+        ],
+        "1360-gamedata.base": [
+          0,
+          24,
+          0
+        ],
+        "959-gamedata.base": [
+          0,
+          24,
+          0
+        ]
+      },
+      "inherits from": {
+        "42899-rebirth.mod": [
+          0,
+          0,
+          0
+        ]
+      },
+      "Slave AI Goals": {
+        "43932-rebirth.mod": [
+          0,
+          24,
+          0
+        ]
+      }
+    },
+    "provenance": {
+      "clears existing jobs": "gamedata.base",
+      "signal func": "gamedata.base",
+      "unloaded func": "gamedata.base"
+    },
+    "sources": [
+      "gamedata.base",
+      "rebirth.mod"
+    ]
+  },
+  "3108-gamedata.base": {
+    "sid": "3108-gamedata.base",
+    "name": "Shop-24hr",
+    "type": 72,
+    "fields": {
+      "clears existing jobs": 0,
+      "signal func": 2,
+      "unloaded func": 4
+    },
+    "refs": {
+      "Leader AI Goals": {
+        "1170-gamedata.base": [
+          0,
+          100,
+          0
+        ],
+        "2825-gamedata.base": [
+          0,
+          100,
+          0
+        ],
+        "3104-gamedata.base": [
+          0,
+          100,
+          0
+        ],
+        "1360-gamedata.base": [
+          0,
+          24,
+          0
+        ]
+      },
+      "Squad AI Goals": {
+        "1188-gamedata.base": [
+          0,
+          100,
+          0
+        ],
+        "2825-gamedata.base": [
+          0,
+          100,
+          0
+        ],
+        "12609-gamedata.base": [
+          0,
+          24,
+          10
+        ],
+        "2891-gamedata.base": [
+          0,
+          24,
+          0
+        ],
+        "1360-gamedata.base": [
+          0,
+          24,
+          0
+        ],
+        "959-gamedata.base": [
+          0,
+          24,
+          0
+        ]
+      },
+      "inherits from": {
+        "42899-rebirth.mod": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    "provenance": {
+      "clears existing jobs": "gamedata.base",
+      "signal func": "gamedata.base",
+      "unloaded func": "gamedata.base"
+    },
+    "sources": [
+      "gamedata.base",
+      "rebirth.mod"
+    ]
+  },
+  "51815-rebirth.mod": {
+    "sid": "51815-rebirth.mod",
+    "name": "Guard building 24hr service",
+    "type": 72,
+    "fields": {
+      "clears existing jobs": 0,
+      "signal func": 0,
+      "unloaded func": 4
+    },
+    "refs": {
+      "inherits from": {
+        "42899-rebirth.mod": [
+          0,
+          0,
+          0
+        ]
+      },
+      "Leader AI Goals": {
+        "1188-gamedata.base": [
+          0,
+          100,
+          0
+        ],
+        "1360-gamedata.base": [
+          0,
+          100,
+          0
+        ],
+        "2826-gamedata.base": [
+          0,
+          100,
+          0
+        ],
+        "2825-gamedata.base": [
+          0,
+          24,
+          0
+        ]
+      },
+      "Squad AI Goals": {
+        "957-gamedata.base": [
+          0,
+          100,
+          0
+        ],
+        "1188-gamedata.base": [
+          0,
+          100,
+          30
+        ],
+        "1360-gamedata.base": [
+          0,
+          100,
+          0
+        ],
+        "2826-gamedata.base": [
+          0,
+          100,
+          0
+        ],
+        "2891-gamedata.base": [
+          0,
+          100,
+          0
+        ],
+        "12609-gamedata.base": [
+          0,
+          24,
+          10
+        ],
+        "1136-gamedata.base": [
+          0,
+          24,
+          100
+        ]
+      }
+    },
+    "provenance": {
+      "clears existing jobs": "rebirth.mod",
+      "signal func": "rebirth.mod",
+      "unloaded func": "rebirth.mod"
+    },
+    "sources": [
+      "rebirth.mod"
+    ]
+  }
+}

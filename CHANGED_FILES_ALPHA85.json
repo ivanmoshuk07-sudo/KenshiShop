@@ -1,0 +1,22 @@
+{
+  ".github/workflows/release.yml": "0bccdb5357751e7c4f352fc27678423078b366cc6cebfe0199012d84c091f5ac",
+  "Development/build_alpha85.py": "4cfcd02853fb77b36a10e6d85debf15c4fb6636f77b52637a30fa230815afaf3",
+  "Development/references/native_ai.json": "024ef7bbb9ca2069b6c7a1a3e13b427300619a74bc86f608715b3127c8b5ac93",
+  "Development/references/native_nodes.json": "baf418309dd00e0144a3c755c05522cef0b7d2b5ba4b89f5ec0aa3d7218a60a2",
+  "Development/tests/data85.py": "5da7a49dd525e27a8d6b434f5186949841c3efbdce765d368d4f3b27eb4bb6f6",
+  "Development/tests/duty.lua": "ce122632a5d7566f7cda25869e99282345f69cf21a1d187c0232cfd1c9d117f2",
+  "Development/tests/residence85.lua": "7bbc3fe70c4ff55457e863d439403cb129ef2bcee1dba30c2b98b2334374094d",
+  "Development/tests/run_lua.py": "d5dd510f3f370a0b079d725d607275439500bde62596be5d77eaf98c6220800f",
+  "Development/tests/runtime.lua": "5b32147bb0b2b4937020494189e4f3e3ca13b62ce7492183fbff5c95a804d506",
+  "KenshiShop/KenshiShop.mod": "2e5161225323dc5e6f4d555d10215a216fba03eb0fdce3b56804537dc7f33dce",
+  "KenshiShop/scripts/Core.lua": "753fdc2bf014d7bc52c200b5f5012918163b95070ebcccd965792c2d92de48ac",
+  "KenshiShop/scripts/Core/NPC/HomeAssignment.lua": "0f73e838c52f53d252de97636b3ddb14ea88f3e536bbfd55d8b75c3e5ae3959e",
+  "KenshiShop/scripts/Core/NPC/NativeNodes.lua": "598bac5a71a7642edacf01456a816514b8da4c034838959edbcba78de94a25a0",
+  "KenshiShop/scripts/Core/NPC/PostData.lua": "5e765d9b20737c985f2e558d47c94785a6070aaa7f0039d47dd2a924d0aa7fd3",
+  "KenshiShop/scripts/Core/NPC/RoleAI.lua": "35348760436e28f789c681e0cdd3d43344d40d67872f9abcb4f56b05ddfd0a69",
+  "KenshiShop/scripts/Core/Ownership/Manager.lua": "c0326aceeaebed6a47bc2ae5aa247eaa7aa630a25856a701b0bf5d0b0858964d",
+  "KenshiShop/scripts/KenshiLuaConsole.lua": "0416147c8fba45933b181336488df16b9dd0840bddc65322236f2c0f9e660667",
+  "README.md": "229afd22ffa454e940d493cba7ec5c2b8435cad04e170b86e2d6327bec63a7d8",
+  "README_ALPHA85_RU.md": "7132a299e47397912f9440bba07f37943527b94913b7bc4e58d58643fb541e48",
+  "RELEASE_NOTES.md": "cbf6739ec19db81051313fe0505a8c620958f40fa8539b24d04a4906dae37379"
+}

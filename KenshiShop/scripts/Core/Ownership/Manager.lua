@@ -303,7 +303,7 @@ function M.new(cfg,report)
   end
   return false
  end
- -- Only the police patrol is ROAMING. Every shop merchant and the chief remain RESIDENT.
+ -- All assigned staff are residents, including the city's permanent patrol.
  local function roleSquadType(spec)
   return (SquadType and SquadType.SQ_RESIDENT) or 1
  end

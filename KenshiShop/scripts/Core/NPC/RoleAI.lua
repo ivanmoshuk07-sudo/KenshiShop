@@ -3,18 +3,23 @@ local Live=require('Core.NPC.LiveState')
 local Log=require('Diagnostics')
 local Nodes=require('Core.NPC.NativeNodes')
 local Goals=require('Core.NPC.NativeGoals')
+local Home=require('Core.NPC.HomeAssignment')
 local M={}
 function M.isWorkingPackage(cfg,name)
  local _,label=M.package(cfg)
- return label~=nil and (name==label or name==label:gsub('KS84','KS83') or name==label:gsub('KS84','KS82') or name==({trader=(cfg.shop=='bar' or cfg.shop=='robotics') and 'KS Native Trader 24h' or 'KS Native Trader 06-23',guard='KS Native Indoor guards',chief='KS Native Police chief',patrol='KS Native Town patrol'})[cfg.role])
+ if not label then return false end
+ for _,version in ipairs({'KS85','KS84','KS83','KS82'})do
+  if name==label:gsub('KS85',version)then return true end
+ end
+ return name==({trader=(cfg.shop=='bar' or cfg.shop=='robotics') and 'KS Native Trader 24h' or 'KS Native Trader 06-23',guard='KS Native Indoor guards',chief='KS Native Police chief',patrol='KS Native Town patrol'})[cfg.role]
 end
 function M.package(cfg)
  if cfg.role=='trader' then
-  if cfg.shop=='bar' or cfg.shop=='robotics' then return '8400-KenshiShop.mod','KS84 Trader 24h' end
-  return '8401-KenshiShop.mod','KS84 Trader 06-23'
- elseif cfg.role=='guard' then return '8402-KenshiShop.mod','KS84 Indoor guards'
- elseif cfg.role=='chief' then return '8403-KenshiShop.mod','KS84 Police chief'
- elseif cfg.role=='patrol' then return '8404-KenshiShop.mod','KS84 Town patrol' end
+  if cfg.shop=='bar' or cfg.shop=='robotics' then return '8500-KenshiShop.mod','KS85 Trader 24h' end
+  return '8501-KenshiShop.mod','KS85 Trader 06-23'
+ elseif cfg.role=='guard' then return '8502-KenshiShop.mod','KS85 Indoor guards'
+ elseif cfg.role=='chief' then return '8503-KenshiShop.mod','KS85 Police chief'
+ elseif cfg.role=='patrol' then return '8504-KenshiShop.mod','KS85 Town patrol' end
 end
 local function say(s,event,why)
  Log.console('NPC_ROLE_'..event..' shop='..s.cfg.shop..' role='..s.cfg.role..' building='..s.key..' '..tostring(why or ''))
@@ -58,41 +63,12 @@ function M.ensure(s,ms)
  local bb=Live.call(lead,'getBlackboard')
  local old=bb and Live.call(bb,'getCurrentAIPackageName')
  if type(old)~='string' then return fail(s,r,'BLACKBOARD_UNAVAILABLE') end
- local nodeOK,nodeWhy=Nodes.ensure(s,s.building)
- if not nodeOK then
-  if r.nodeWhy~=nodeWhy then say(s,'WAIT_NODES',nodeWhy);r.nodeWhy=nodeWhy end
-  return false
- end
+ r.initialPackage=r.initialPackage or old
  local world=getGameWorld()
- -- Native town goals must use this settlement, including restored squads.
- local town=Live.call(s.building,'getTown')
- if not town then return fail(s,r,'HOME_TOWN_UNAVAILABLE')end
- local ownList={owns}
- for _,mate in ipairs(ms)do
-  local memberOwns=Live.call(mate.char,'getOwnerships')
-  if not memberOwns then return fail(s,r,'MEMBER_OWNERSHIPS_UNAVAILABLE')end
-  ownList[#ownList+1]=memberOwns
- end
- local homeTown=Live.call(Live.call(town,'getHandle'),'toString')
- if not homeTown then return fail(s,r,'HOME_TOWN_HANDLE_UNAVAILABLE')end
- for _,o in ipairs(ownList)do
-  local current=Live.call(Live.call(o._homeTown,'getHandle'),'toString')
-  if current~=homeTown then
-   local yes,err=pcall(o.setHomeTown,o,town,1)
-   if not yes or Live.call(Live.call(o._homeTown,'getHandle'),'toString')~=homeTown then return fail(s,r,'HOME_TOWN_ASSIGN '..tostring(err))end
-  end
- end
- local targetOK,targetError=pcall(function()bb.targetTown=town end)
- if not targetOK then return fail(s,r,'TARGET_TOWN_ASSIGN '..tostring(targetError))end
  local data=world and Live.call(world.gamedata,'getData',id,72)
  if not data then return fail(s,r,'PACKAGE_MISSING '..id) end
- if old~=label then
-  r.upgraded=true
-  local yes,err=pcall(bb.replaceAIPackage,bb,data)
-  if not yes then return fail(s,r,'ASSIGN_FAILED '..tostring(err)) end
-  r.setup={}
- end
- -- Verify and finish every member even if an earlier attempt partially succeeded.
+ -- Initialize member AI BEFORE installing the final package. An initializer
+ -- must not later overwrite the selected work package or its home context.
  for _,mate in ipairs(ms)do
   if not r.setup[mate.key] then
    -- One-time cleanup of only alpha.82/.83 goals marked by this mod.
@@ -105,12 +81,37 @@ function M.ensure(s,ms)
    local yes,err=pcall(mate.char.setupPlatoonAI,mate.char)
    if not yes then return fail(s,r,'SETUP_FAILED '..mate.key..' '..tostring(err)) end
    r.setup[mate.key]=true
-   local orders=Live.call(mate.char,'getOrdersReciever')
-   if orders and (s.cfg.role=='guard' or s.cfg.role=='patrol' or s.cfg.role=='chief')then pcall(function()orders.aggroMode=1 end)end
-   Live.call(orders,'setNeedGOAP')
   end
  end
+ if not r.homeDone then
+  local yes,why=Home.ensure(s,ms,bb)
+  if not yes then
+   if why=='HOME_FACTION_NOT_READY' or why=='BUILDING_TOWN_UNAVAILABLE' then
+    if r.homeWhy~=why then say(s,'WAIT_HOME',why);r.homeWhy=why end
+    return false
+   end
+   return fail(s,r,'HOME_ASSIGN '..tostring(why))
+  end
+  r.homeDone=true
+ end
+ local nodeOK,nodeWhy=Nodes.ensure(s,s.building)
+ if not nodeOK then
+  if r.nodeWhy~=nodeWhy then say(s,'WAIT_NODES',nodeWhy);r.nodeWhy=nodeWhy end
+  return false
+ end
+ if Live.call(bb,'getCurrentAIPackageName')~=label then
+  -- alpha.84 already contains the approved assortment. An AI-only migration
+  -- from it must not forcibly refresh that trader's inventory.
+  if r.initialPackage:sub(1,4)~='KS84' and r.initialPackage:sub(1,4)~='KS85' then r.upgraded=true end
+  local yes,err=pcall(bb.replaceAIPackage,bb,data)
+  if not yes then return fail(s,r,'ASSIGN_FAILED '..tostring(err)) end
+ end
  if Live.call(bb,'getCurrentAIPackageName')~=label then return fail(s,r,'PACKAGE_VERIFY_FAILED') end
+ for _,mate in ipairs(ms)do
+  local orders=Live.call(mate.char,'getOrdersReciever')
+  local yes,err=pcall(function()orders:setNeedGOAP()end)
+  if not yes then return fail(s,r,'GOAP_WAKE_FAILED '..mate.key..' '..tostring(err))end
+ end
  r.done=true
  say(s,'READY','package='..id..' label='..label..' native_care=58,57,148 gameplay=UNVERIFIED')
  return true
