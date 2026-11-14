@@ -2,13 +2,17 @@
 local Live=require('Core.NPC.LiveState')
 local Log=require('Diagnostics')
 local M={}
+function M.isWorkingPackage(cfg,name)
+ local _,label=M.package(cfg)
+ return name==label or name==({trader=(cfg.shop=='bar' or cfg.shop=='robotics') and 'KS Native Trader 24h' or 'KS Native Trader 06-23',guard='KS Native Indoor guards',chief='KS Native Police chief',patrol='KS Native Town patrol'})[cfg.role]
+end
 function M.package(cfg)
  if cfg.role=='trader' then
-  if cfg.shop=='bar' or cfg.shop=='robotics' then return '8100-KenshiShop.mod','KS Native Trader 24h' end
-  return '8101-KenshiShop.mod','KS Native Trader 06-23'
- elseif cfg.role=='guard' then return '8102-KenshiShop.mod','KS Native Indoor guards'
- elseif cfg.role=='chief' then return '8103-KenshiShop.mod','KS Native Police chief'
- elseif cfg.role=='patrol' then return '8104-KenshiShop.mod','KS Native Town patrol' end
+  if cfg.shop=='bar' or cfg.shop=='robotics' then return '8200-KenshiShop.mod','KS82 Trader 24h' end
+  return '8201-KenshiShop.mod','KS82 Trader 06-23'
+ elseif cfg.role=='guard' then return '8202-KenshiShop.mod','KS82 Indoor guards'
+ elseif cfg.role=='chief' then return '8203-KenshiShop.mod','KS82 Police chief'
+ elseif cfg.role=='patrol' then return '8204-KenshiShop.mod','KS82 Town patrol' end
 end
 local function say(s,event,why)
  Log.console('NPC_ROLE_'..event..' shop='..s.cfg.shop..' role='..s.cfg.role..' building='..s.key..' '..tostring(why or ''))
@@ -34,6 +38,9 @@ function M.ensure(s,ms)
  for _,mate in ipairs(ms)do
   if mate.key==key then found=true end
   local busy,why=Live.halted(mate.char)
+  local orders=Live.call(mate.char,'getOrdersReciever')
+  local active=Live.call(Live.call(orders,'getCurrentGoal'),'key')
+  if ({[25]=true,[57]=true,[58]=true,[60]=true,[105]=true,[142]=true,[148]=true})[active] then busy=true;why='NATIVE_CARE_'..active end
   local carried=Live.call(mate.char,'getCarryingObject')
   if busy or not carried or Live.call(carried,'isNull')~=true then
    if not r.busyLogged then say(s,'DEFER',why or 'CARRYING_OR_UNKNOWN');r.busyLogged=true end
@@ -52,6 +59,7 @@ function M.ensure(s,ms)
  local data=world and Live.call(world.gamedata,'getData',id,72)
  if not data then return fail(s,r,'PACKAGE_MISSING '..id) end
  if old~=label then
+  r.upgraded=true
   local yes,err=pcall(bb.replaceAIPackage,bb,data)
   if not yes then return fail(s,r,'ASSIGN_FAILED '..tostring(err)) end
   r.setup={}
@@ -62,6 +70,11 @@ function M.ensure(s,ms)
    local yes,err=pcall(mate.char.setupPlatoonAI,mate.char)
    if not yes then return fail(s,r,'SETUP_FAILED '..mate.key..' '..tostring(err)) end
    r.setup[mate.key]=true
+   local orders=Live.call(mate.char,'getOrdersReciever')
+   local active=Live.call(Live.call(orders,'getCurrentGoal'),'key')
+   if ({[1]=true,[19]=true,[20]=true,[36]=true,[38]=true,[268]=true})[active] then Live.call(orders,'clearCurrentGoal',false)end
+   if orders and (s.cfg.role=='guard' or s.cfg.role=='patrol' or s.cfg.role=='chief')then pcall(function()orders.aggroMode=1 end)end
+   Live.call(orders,'setNeedGOAP')
   end
  end
  if Live.call(bb,'getCurrentAIPackageName')~=label then return fail(s,r,'PACKAGE_VERIFY_FAILED') end

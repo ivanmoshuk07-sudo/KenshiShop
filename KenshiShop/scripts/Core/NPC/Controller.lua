@@ -7,6 +7,8 @@ local Appearance=require('Core.NPC.Appearance')
 local Supplies=require('Core.NPC.Supplies')
 local Work=require('Core.NPC.RoleAI')
 local Catalog=require('Core.NPC.Catalog')
+local Duty=require('Core.NPC.Duty')
+local Residence=require('Core.NPC.Residence')
 local M={}
 local FRAME_STEP=40
 local ARRIVAL_RADIUS=26
@@ -70,7 +72,7 @@ local function squadMembers(s)
   local lead=Live.call(ap,'getSquadLeader')
   local bb=lead and Live.call(lead,'getBlackboard')
   local _,label=Work.package(s.cfg)
-  nativeSaved=label~=nil and Live.call(bb,'getCurrentAIPackageName')==label
+  nativeSaved=Work.isWorkingPackage(s.cfg,Live.call(bb,'getCurrentAIPackageName'))
  end
  if type(count)~='number' or count<1 or count>s.cfg.count or (s.phase~='DELIVERED' and not nativeSaved and count~=s.cfg.count) then
   return nil,nil,'COUNT_MISMATCH '..tostring(count)..'/'..s.cfg.count end
@@ -145,9 +147,10 @@ local function arrived(s,ms,b)
  end
  -- Delivery ends. Native goals take over; never reissue a destination here.
  supplyAudit(s,ms,s.now)
- Work.ensure(s,ms)
- Catalog.ensure(s,ms)
- s.phase='DELIVERED';s.nextCheck=s.now+10
+ local residentOK=Residence.ensure(s,b)
+ if residentOK then Work.ensure(s,ms);Catalog.ensure(s,ms);Duty.tick(s,ms,b)
+ else emit(s,'RESIDENT_WAIT','work_handoff_waits_for_trader_resident')end
+ s.phase='DELIVERED';s.nextCheck=s.now+1
  -- Low-frequency handoff retries and resource audit; no forced work movement.
 
 end
@@ -397,7 +400,7 @@ function M.new(cfg)
    -- All stores recover their EXISTING squad on clock rewind. A previous
    -- version stopped monitoring four stores and lost unfinished delivery.
    s.previousClock=now;s.nextCheck=0;s.phase='WAIT_SAVED'
-   s.saved=true;s.platoon=nil;s.orders={};s.baseline=nil;s.work=nil;s.catalog=nil;s.nextSupplyCheck=nil;s.supplyResetAt=nil;s.supplyFailures=nil
+   s.saved=true;s.platoon=nil;s.orders={};s.baseline=nil;s.work=nil;s.catalog=nil;s.duty=nil;s.nextSupplyCheck=nil;s.supplyResetAt=nil;s.supplyFailures=nil
    s.teleDue=nil;s.gate=nil
    emit(s,'CLOCK_RESET_RECOVER','game_clock_decreased; read_only_saved_squad_lookup; no_new_spawn','clock_reset_recover_'..s.frames)
    return
@@ -434,15 +437,19 @@ function M.new(cfg)
    local lead=Live.call(ap,'getSquadLeader')
    local bb=lead and Live.call(lead,'getBlackboard')
    local _,label=Work.package(cfg)
-   if label and Live.call(bb,'getCurrentAIPackageName')==label then
+   if Work.isWorkingPackage(cfg,Live.call(bb,'getCurrentAIPackageName')) then
     s.counted=#ms;return arrived(s,ms,b)
    end
   end
   if s.phase=='DELIVERED' then
    supplyAudit(s,ms,now)
-   Work.ensure(s,ms)
-   Catalog.ensure(s,ms)
-   s.nextCheck=now+10
+   local residentOK=Residence.ensure(s,b)
+   if residentOK then Work.ensure(s,ms);Catalog.ensure(s,ms)end
+   if cfg.role=='trader' then
+    pcall(function()require('Core.Ownership.Registry').monitorResident(cfg.shop,b,now)end)
+   end
+   if residentOK then Duty.tick(s,ms,b)end
+   s.nextCheck=now+1
    return
   end
   local snap,why=snapshot(s,ms,b,radius(s))
@@ -560,7 +567,7 @@ function M.new(cfg)
    return false,'EXISTING_SQUAD '..tostring(reason)
   end
   local catalogOK,catalogWhy=Catalog.prepare(cfg)
-  if not catalogOK then return false,catalogWhy end
+  if not catalogOK then Log.error('NPC_CATALOG82_PENDING shop='..cfg.shop..' '..tostring(catalogWhy)..' delivery_continues') end
   local good,pre=pcall(T.preflight,b,cfg)
   if not good then return false,'PREFLIGHT_FAILED '..tostring(pre) end
   Log.console('NPC_PREFLIGHT shop='..cfg.shop..' squad='..cfg.role..' building='..key..' template='..cfg.template..' count='..cfg.count..' outside='..pre.method..' at='..T.fmt(pre.spawn))
@@ -582,12 +589,12 @@ function M.new(cfg)
     -- Load callbacks may reuse the same building handle while old monitors exist.
     -- Reset stale native pointers; wait for read-only saved-squad resolution.
     s.handle=b:getHandle();s.platoon=nil;s.saved=true;s.phase='WAIT_SAVED'
-    s.nextCheck=0;s.previousClock=nil;s.orders={};s.baseline=nil;s.work=nil;s.catalog=nil;s.nextSupplyCheck=nil;s.supplyResetAt=nil;s.supplyFailures=nil
+    s.nextCheck=0;s.previousClock=nil;s.orders={};s.baseline=nil;s.work=nil;s.catalog=nil;s.duty=nil;s.nextSupplyCheck=nil;s.supplyResetAt=nil;s.supplyFailures=nil
     return true,'LOAD_REFRESH_SAVED_LOOKUP; no_respawn'
    end
    if s.hook then return false,'ALREADY_MONITORING' end
    s.handle=b:getHandle();s.phase='WAIT_SAVED';s.nextCheck=0
-   s.platoon=nil;s.saved=true;s.previousClock=nil;s.orders={};s.work=nil;s.catalog=nil;s.nextSupplyCheck=nil;s.supplyResetAt=nil;s.supplyFailures=nil
+   s.platoon=nil;s.saved=true;s.previousClock=nil;s.orders={};s.work=nil;s.catalog=nil;s.duty=nil;s.nextSupplyCheck=nil;s.supplyResetAt=nil;s.supplyFailures=nil
    return attach(s),'SESSION_REATTACHED'
   end
   local ok,p,reason=pcall(Existing.find,b,cfg)
@@ -612,7 +619,7 @@ function M.new(cfg)
  function driver.status(b)
   local s=states[b:getHandle():toString()]
   if not s then return 'NOT_SCHEDULED' end
-  return s.phase..' work='..Work.status(s)..' catalog='..tostring(s.catalog and s.catalog.done or false)..' counted='..tostring(s.counted or '?')..'/'..cfg.count..' near='..tostring(s.near or 0)..' saved='..tostring(s.saved)..' next='..tostring(s.nextCheck)
+  return s.phase..' work='..Work.status(s)..' duty='..Duty.status(s)..' catalog='..tostring(s.catalog and s.catalog.done or false)..' counted='..tostring(s.counted or '?')..'/'..cfg.count..' near='..tostring(s.near or 0)..' saved='..tostring(s.saved)..' next='..tostring(s.nextCheck)
  end
  function driver.check(b)
   local ok,pre=pcall(T.preflight,b,cfg)

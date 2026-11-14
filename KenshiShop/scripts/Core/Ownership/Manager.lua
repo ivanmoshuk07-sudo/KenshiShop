@@ -6,6 +6,7 @@ local Transport=require('Core.NPC.Transport')
 local TownAudit=require('Core.Ownership.TownAudit')
 local ConstructionGate=require('Core.Ownership.ConstructionGate')
 local M={}
+local Residence=require('Core.NPC.Residence')
 local OWNER_POLL_FRAMES=4    -- first safe frame; small bounded interval for active platoon readiness
 local OWNER_TIMEOUT_FRAMES=480 -- never spin indefinitely when faction/squad fails to load
 local MAX_OWNER_SET_CALLS=3
@@ -304,9 +305,6 @@ function M.new(cfg,report)
  end
  -- Only the police patrol is ROAMING. Every shop merchant and the chief remain RESIDENT.
  local function roleSquadType(spec)
-  if cfg.shop=='police' and spec.role=='patrol' and not spec.owner then
-   return (SquadType and SquadType.SQ_ROAMING) or 2
-  end
   return (SquadType and SquadType.SQ_RESIDENT) or 1
  end
  local function ensureRole(s,b,spec)
@@ -322,6 +320,11 @@ function M.new(cfg,report)
   end
   local town=try(b.getTown,b)
   if not town then return false,'TOWN_NOT_READY' end
+  if cfg.shop=='police' and spec.role=='patrol' then
+   if try(p.getSquadType,p)~=roleSquadType(spec) then
+    local ok=pcall(p.setSquadType,p,roleSquadType(spec));if not ok then return false,'PATROL_TYPE_NOT_READY'end
+   end
+  end
   local h=homeID(p)
   if h~=s.key then
    local ok,err=pcall(owns.setHomeBuilding,owns,b:getHandle(),roleSquadType(spec))
@@ -385,7 +388,7 @@ function M.new(cfg,report)
   -- the native rebind more than three times across the complete audit.
   if (s.residentSetCalls or 0)>=3 then return false,'TRADER_RESIDENT_REBIND_LIMIT' end
   s.residentSetCalls=(s.residentSetCalls or 0)+1
-  local ok,err=pcall(b.setResidentSquad,b,trader)
+  local ok,err=Residence.bind(b,trader,guard)
   local after=platoonID(resident(b))
   emit(s,'SHOP_RESIDENT_REBIND','attempt='..s.residentSetCalls..'/3 expected='..id
    ..' guard='..platoonID(guard)..' before='..present..' after='..after
@@ -654,7 +657,7 @@ function M.new(cfg,report)
    return false,'WRITE_BUDGET_EXHAUSTED'
   end
   s.residentSetCalls=(s.residentSetCalls or 0)+1
-  local ok,err=pcall(b.setResidentSquad,b,trader)
+  local ok,err=Residence.bind(b,trader,guard)
   local after=platoonID(resident(b))
   emit(s,'SHOP_RESIDENT_WATCH_REBIND','write='..s.residentSetCalls..'/3 expected='..want
     ..' before='..current..' after='..after..' call='..tostring(ok)

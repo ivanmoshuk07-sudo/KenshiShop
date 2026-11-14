@@ -4,7 +4,7 @@ import argparse, subprocess, zipfile, hashlib
 p=argparse.ArgumentParser();p.add_argument('--tag',required=True);p.add_argument('--previous-tag');args=p.parse_args()
 root=Path(__file__).resolve().parents[1];out=root/'dist';out.mkdir(exist_ok=True)
 def git(*cmd):return subprocess.check_output(['git',*cmd],cwd=root).decode().splitlines()
-def payload(name):return name.startswith(('KenshiShop/','KenshiShop_LegendaryCompat/','Development/')) or name in ('README_ALPHA81_RU.md','CHANGED_FILES_ALPHA81.json')
+def payload(name):return name.startswith(('KenshiShop/','KenshiShop_LegendaryCompat/','Development/')) or (name.startswith('README_ALPHA') and name.endswith('_RU.md')) or (name.startswith('CHANGED_FILES_ALPHA') and name.endswith('.json'))
 files=[n for n in git('ls-files') if payload(n)]
 previous=args.previous_tag
 if not previous:

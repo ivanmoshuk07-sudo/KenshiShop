@@ -34,4 +34,23 @@ for n in [300,303,305,307,309]:
  assert km.campo(r,'long','vendor money')>0
  assert km.campo(r,'bool','public night')==int(n in [300,309])
 assert new[b'7603-KenshiShop.mod']==old[b'7603-KenshiShop.mod']
-print('PASS binary round trips, all original records retained, exactly six existing records changed, 14 added records, unique IDs, internal references, schedules, care goals, trader budgets, optional dependency removed')
+for n in range(8200,8205):
+ r=new[f'{n}-KenshiShop.mod'.encode()]
+ for cat in [b'Leader AI Goals',b'Squad AI Goals']:
+  goals=dict(r['extra'])[cat]
+  for sid in [b'1360-gamedata.base',b'7603-KenshiShop.mod',b'51395-rebirth.mod']:
+   assert (sid,0,24,0) in goals
+  assert all(sid not in {b'8000-KenshiShop.mod',b'8001-KenshiShop.mod',b'8002-KenshiShop.mod',b'8003-KenshiShop.mod',b'8004-KenshiShop.mod',b'8005-KenshiShop.mod'} for sid,*_ in goals)
+for sid,r in old.items():
+ if r['typecode'] in [0,21]:assert new[sid]==r,('Building/furniture data changed',sid)
+assert dict(new[b'303-KenshiShop.mod']['extra'])[b'vendors']==[(b'1502-gamedata.base',100,0,0)]
+assert dict(new[b'305-KenshiShop.mod']['extra'])[b'vendors']==[(b'50319-rebirth.mod',100,0,0)]
+print('PASS binary round trips, preserved building/layout records, unique IDs/references, care/schedules, explicit vendors; no absent-node or roaming goals in alpha.82 packages')
+
+import subprocess
+# Check alpha.81 physical interiors and furniture logic byte-for-byte.
+files=subprocess.check_output(['git','ls-tree','-r','--name-only','v0.3.0-alpha.81'],text=True).splitlines()
+protected=[p for p in files if '/Building/' in p or p.startswith('KenshiShop/scripts/Core/Ownership/') and p.rsplit('/',1)[-1]!='Manager.lua']
+for name in protected:
+ assert Path(name).read_bytes()==subprocess.check_output(['git','show','v0.3.0-alpha.81:'+name]),name
+print('PASS all physical building modules and furniture ownership/restore files identical to alpha.81')

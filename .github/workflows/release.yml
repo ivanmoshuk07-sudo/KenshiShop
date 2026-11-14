@@ -22,6 +22,7 @@ jobs:
           find KenshiShop/scripts -name '*.lua' -print0 | xargs -0 -n 1 luac -p
           lua Development/tests/runtime.lua KenshiShop/scripts
           lua Development/tests/controller.lua KenshiShop/scripts
+          lua Development/tests/duty.lua KenshiShop/scripts
       - name: Validate binary data against the supplied alpha.80
         run: |
           git show v0.3.0-alpha.80:KenshiShop/KenshiShop.mod > /tmp/kenshishop-alpha80.mod

@@ -30,7 +30,8 @@ package.loaded['Core.NPC.Transport']={members=function()return members end,valid
 package.loaded['Core.NPC.ExistingSquads']={find=function()return platoon end,inspect=function()return true end}
 package.loaded['Core.NPC.Appearance']={apply=function()gear=gear+1 end}
 package.loaded['Core.NPC.Supplies']={sync=function()return true,'UNCHANGED'end}
-package.loaded['Core.NPC.RoleAI']={package=function()return '8104-KenshiShop.mod',label end,
+package.loaded['Core.NPC.Duty']={tick=function()end,status=function()return 'TEST'end}
+package.loaded['Core.NPC.RoleAI']={isWorkingPackage=function(_,name)return name==label end,package=function()return '8104-KenshiShop.mod',label end,
  ensure=function()work=work+1 end,status=function()return 'READY'end}
 package.loaded['Core.NPC.Catalog']={ensure=function()catalog=catalog+1 end,prepare=function()return true end}
 package.loaded['Core.Ownership.Registry']={onArrived=function()end,onRestored=function()end}

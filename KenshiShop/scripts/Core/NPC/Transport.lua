@@ -77,11 +77,8 @@ function M.spawn(p,building,config)
  return p.world.theFactory:createRandomSquad(
  p.faction,p.spawn,p.town,config.count,building,p.template,
  nil,nil,nil,true,building:getHandle(),p.town,1.0,
- -- The chief remains the only building resident; police patrol is a roaming squad.
- -- KenshiLua SquadType: SQ_RESIDENT=1, SQ_ROAMING=2.
- ((config.shop=='police' and config.role=='patrol')
-  and ((SquadType and SquadType.SQ_ROAMING) or 2)
-  or ((SquadType and SquadType.SQ_RESIDENT) or 1)),false)
+ -- All groups are residents of their home city; the patrol gets an explicit inside-city route.
+ ((SquadType and SquadType.SQ_RESIDENT) or 1),false)
 end
 -- KenshiLua exposes world.charUpdateListMain as iterable ogre_unordered_set<Character*>.
 -- Do not use undocumented ActivePlatoon.characterHandles (lightuserdata).
