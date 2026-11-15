@@ -8,6 +8,42 @@ package.loaded.Diagnostics=Log
 package.loaded['Core.NPC.NativeNodes']={ensure=function()return true end}
 local Live=require('Core.NPC.LiveState')
 local Work=require('Core.NPC.RoleAI')
+local LegacyGoals=require('Core.NPC.NativeGoals')
+local function legacyFixture(entries)
+ local orders={goals={{},{},{},{},{}},removed=0,wakes=0}
+ for _,entry in ipairs(entries)do
+  orders.goals[entry[1]][#orders.goals[entry[1]]+1]={weight=entry[3],key=function()return entry[2]end}
+ end
+ function orders:removeGoal(key)
+  self.removed=self.removed+1
+  for _,tasks in ipairs(self.goals)do
+   for i=#tasks,1,-1 do if tasks[i]:key()==key then table.remove(tasks,i)end end
+  end
+ end
+ function orders:setNeedGOAP()self.wakes=self.wakes+1 end
+ return {getOrdersReciever=function()return orders end},orders
+end
+test('legacy migration finds marked goals in every native priority bucket and removes them once',function()
+ for bucket=1,5 do
+  local c,o=legacyFixture({{bucket,1,1.082},{4,58,1}})
+  local ok,removed=LegacyGoals.remove(c,1)
+  assert(ok and removed and o.removed==1 and o.wakes==1 and #o.goals[4]==1)
+  local again,changed=LegacyGoals.remove(c,1)
+  assert(again and not changed and o.removed==1 and o.wakes==1)
+ end
+ assert(LegacyGoals.set==nil and LegacyGoals.routine==nil and LegacyGoals.clearRoutine==nil)
+end)
+test('legacy migration preserves unmarked native and player goals',function()
+ local c,o=legacyFixture({{2,1,1},{3,30,2},{4,58,1}})
+ for _,key in ipairs({1,30,5})do local ok,removed=LegacyGoals.remove(c,key);assert(ok and not removed)end
+ assert(o.removed==0 and o.wakes==0 and #o.goals[2]==1 and #o.goals[3]==1 and #o.goals[4]==1)
+end)
+test('legacy migration preserves foreign same-key goals in either encounter order',function()
+ for _,entries in ipairs({{{2,1,1.082},{4,1,1}},{{2,1,1},{4,1,1.082}}})do
+  local c,o=legacyFixture(entries);local ok,removed=LegacyGoals.remove(c,1)
+  assert(ok and not removed and o.removed==0 and o.wakes==0 and #o.goals[2]==1 and #o.goals[4]==1)
+ end
+end)
 local label,replaceCount,setupCount,failMember,busy,carrying
 local player={isThePlayer=function()return true end}
 local town={getHandle=function()return {toString=function()return 'town'end}end,getFaction=function()return player end}

@@ -5,15 +5,20 @@ ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'Development'))
 import kenshimod as km
 oldpath,newpath=map(Path,sys.argv[1:3])
-assert oldpath.read_bytes()==newpath.read_bytes(),'alpha90 FCS data must remain byte identical'
 mod=km.ler(newpath);assert km.serializar(mod)==newpath.read_bytes() and len(mod['records'])==227
+# Release labels are metadata. All other header fields and gameplay bytes must
+# remain identical to the known alpha.90 data, including every record and layout.
+baseline=km.ler(oldpath);description=mod['description']
+mod['description']=baseline['description']
+assert km.serializar(mod)==oldpath.read_bytes(),'Only the FCS release description may change'
+mod['description']=description
 by={r['strid']:r for r in mod['records']}
 races=[r for r in mod['records'] if r['typecode']==7]
 assert len(races)==14
 limbs={f'700{i}-KenshiShop.mod'.encode() for i in range(1,5)}
 for race in races:assert limbs<={row[0] for row in dict(race['extra'])[b'combat anatomy']}
 for sid in limbs:assert dict(by[sid]['bool'])[b'severance']==0
-print('PASS alpha90 .mod byte identical; all 227 records, rescue continuation, shifts and race stats preserved')
+print('PASS alpha90 gameplay bytes identical; all 227 records, rescue continuation, shifts and race stats preserved; release description may differ')
 paths=subprocess.check_output(['git','ls-tree','-r','--name-only','v0.3.0-alpha.90'],cwd=ROOT,text=True).splitlines()
 protected=[p for p in paths if '/Building/' in p or p.startswith('KenshiShop_LegendaryCompat/') or p.endswith('/Catalog.lua') or 'Furniture' in p or '/Floor' in p or '/Layout' in p]
 protected+=['KenshiShop/scripts/Core/NPC/'+name+'.lua' for name in ['RoleAI','NativeCare','NativeNodes','PostDuty','PostJobs','PostData','Transport','HomeAssignment','OriginTown','ServiceTown']]

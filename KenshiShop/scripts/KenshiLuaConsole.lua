@@ -4,7 +4,7 @@
 local Log = require('Diagnostics')
 local layoutsOK, Layouts = pcall(require, 'Layouts')
 if not layoutsOK then Layouts = {} end
-local API = {version = '0.3.0-alpha.91-native-no-sever'}
+local API = {version = '1.0-beta.1'}
 local state = {
     started = false, core = 'not started', coreError = nil,
     tracked = {}, order = {},
@@ -161,7 +161,7 @@ end
 
 API.help = call('help',function()
  return join({
-  'KenshiShop '..API.version..' | construction + intact interiors + isolated NPC stage1',
+  'KenshiShop '..API.version..' | construction + native NPC work, shifts and care',
   'KS.npcCheck(1) - READ-ONLY NPC template/faction/outside-city check',
   'KS.npcStart(1) - schedule NPC: first squad +1 game minute; next +5',
   'KS.npcStatus(1) - independent trader/guard role statuses',
@@ -175,12 +175,12 @@ API.help = call('help',function()
   'KS.ownerTest1Start() BEFORE construction; KS.ownerTest1Report() AFTER robotics and bar',
   'KS.ownerTest2Before() BEFORE saving; KS.ownerTest2After() AFTER game reload',
   'KS.recoveryCheck() - engineering split check: trader 1/1 + guard 2/2; NO teleport',
-  'KS.npcReport(), KS.npcLogs(120) - spawn and delivery diagnostics only',
+  'KS.npcReport(), KS.npcLogs(120) - NPC delivery, native duty and care diagnostics',
   'KS.npcSplitCheck(1) - READ-ONLY saved/live trader 1/1 and guard 2/2',
   'KS.npcSplitReport() - READ-ONLY audit of four split shops',
   'KS.npcResume(1) - attach saved squads; resume delivery if idle (never respawns)',
   'NPC delivery: 3 tries (1 game minute each), 2-minute wait, one gate rescue, final try',
-  'NPC work AI disabled: spawn outside town and delivery only',
+  'Native NPC work: traders, floor guards, chief and day/night patrol; Medic/Robotics/Rescue',
   'KS.status()    - module/core status',
   'KS.scan()      - one-shot read-only scan of PLAYER-owned shops',
   'KS.list()      - detected shops',

@@ -1,24 +1,50 @@
-"""Package tracked mod files; unchanged assets stay out of the update ZIP."""
+"""Package a complete player release; development history stays in the repository."""
 from pathlib import Path
-import argparse, subprocess, zipfile, hashlib
-p=argparse.ArgumentParser();p.add_argument('--tag',required=True);p.add_argument('--previous-tag');p.add_argument('--full-only',action='store_true');args=p.parse_args()
-root=Path(__file__).resolve().parents[1];out=root/'dist';out.mkdir(exist_ok=True)
-def git(*cmd):return subprocess.check_output(['git',*cmd],cwd=root).decode().splitlines()
-def payload(name):return name.startswith(('KenshiShop/','KenshiShop_LegendaryCompat/','Development/')) or (name.startswith('README_ALPHA') and name.endswith('_RU.md')) or (name.startswith('CHANGED_FILES_ALPHA') and name.endswith('.json'))
-files=[n for n in git('ls-files') if payload(n)]
-previous=args.previous_tag
-if not previous:
- tags=git('tag','--sort=version:refname');previous=tags[tags.index(args.tag)-1] if args.tag in tags and tags.index(args.tag)>0 else None
-changed=set(git('diff','--name-only','--diff-filter=ACMRT',previous,'HEAD')) if previous else set(files)
-version=args.tag.removeprefix('v')
-archives=[]
-packages=[('FULL',files)]
-if not args.full_only:packages.append(('UPDATE',[n for n in files if n in changed]))
-for label,names in packages:
- path=out/f'KenshiShop_{version}_{label}.zip'
- with zipfile.ZipFile(path,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=6) as z:
-  for name in names:z.write(root/name,name)
- with zipfile.ZipFile(path) as z:assert z.testzip() is None
- archives.append(path)
- print(path.name,path.stat().st_size)
-(out/'SHA256SUMS.txt').write_text(''.join(hashlib.sha256(a.read_bytes()).hexdigest()+'  '+a.name+'\n' for a in archives))
+import argparse
+import hashlib
+import re
+import subprocess
+import zipfile
+
+ROOT = Path(__file__).resolve().parents[1]
+DOCS = {'README.md', 'README_BETA1_RU.md', 'AUDIT_BETA1_RU.md'}
+
+
+def payload(name):
+    return (
+        (name.startswith('KenshiShop/') and not name.startswith('KenshiShop/History/'))
+        or name.startswith('KenshiShop_LegendaryCompat/')
+        # Corresponding native source, SDK header, probes and GPL travel with DLL.
+        or name.startswith('Development/NativeBridge/')
+        or name in DOCS
+    )
+
+
+def package(tag):
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', tag):
+        raise ValueError('Invalid release tag')
+    tracked = subprocess.check_output(['git', 'ls-files', '-z'], cwd=ROOT).decode().split('\0')
+    files = sorted(name for name in tracked if payload(name))
+    for required in [*DOCS, 'KenshiShop/KenshiShop.mod',
+                     'KenshiShop/native/KenshiShopNative.dll',
+                     'Development/NativeBridge/LICENSE']:
+        if required not in files:
+            raise ValueError('Missing release file: ' + required)
+    out = ROOT / 'dist'
+    out.mkdir(exist_ok=True)
+    path = out / f'KenshiShop_{tag.removeprefix("v")}_FULL.zip'
+    with zipfile.ZipFile(path, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
+        for name in files:
+            archive.write(ROOT / name, name)
+    with zipfile.ZipFile(path) as archive:
+        assert archive.testzip() is None
+    with path.open('rb') as stream:
+        digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+    (out / 'SHA256SUMS.txt').write_text(f'{digest}  {path.name}\n')
+    print(path.name, path.stat().st_size, 'bytes;', len(files), 'files')
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--tag', required=True)
+    package(parser.parse_args().tag)

@@ -596,7 +596,6 @@ function M.new(cfg)
     s.nextCheck=0;s.previousClock=nil;s.orders={};s.baseline=nil;s.work=nil;s.catalog=nil;s.duty=nil;s.nextSupplyCheck=nil;s.supplyResetAt=nil;s.supplyFailures=nil
     return true,'LOAD_REFRESH_SAVED_LOOKUP; no_respawn'
    end
-   if s.hook then return false,'ALREADY_MONITORING' end
    s.handle=b:getHandle();s.phase='WAIT_SAVED';s.nextCheck=0
    s.platoon=nil;s.saved=true;s.previousClock=nil;s.orders={};s.work=nil;s.catalog=nil;s.duty=nil;s.nextSupplyCheck=nil;s.supplyResetAt=nil;s.supplyFailures=nil
    return attach(s),'SESSION_REATTACHED'

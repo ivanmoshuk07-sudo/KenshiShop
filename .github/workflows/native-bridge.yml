@@ -1,11 +1,13 @@
-name: Build native node bridge
+name: Build native bridge
 on:
   push:
-    branches: [alpha91-limb-protection]
+    branches: [main]
+    paths: ['Development/NativeBridge/**', '.github/workflows/native-bridge.yml']
+  pull_request:
     paths: ['Development/NativeBridge/**', '.github/workflows/native-bridge.yml']
   workflow_dispatch:
 permissions:
-  contents: write
+  contents: read
 jobs:
   build:
     runs-on: windows-latest
@@ -29,18 +31,6 @@ jobs:
           copy KenshiShop\native\KenshiShopNative.dll native-probe\KenshiShopNative.dll
           cd native-probe
           LoadProbe.exe
-      - name: Record the compiled DLL on the development branch
-        if: github.ref == 'refs/heads/alpha91-limb-protection'
-        shell: pwsh
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add KenshiShop/native/KenshiShopNative.dll
-          git diff --cached --quiet
-          if ($LASTEXITCODE -ne 0) {
-            git commit -m "Build and ABI-check native bridge from $env:GITHUB_SHA"
-            git push origin HEAD:alpha91-limb-protection
-          }
       - uses: actions/upload-artifact@v4
         with:
           name: KenshiShopNative-x64

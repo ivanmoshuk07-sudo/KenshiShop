@@ -42,11 +42,18 @@ function M.tick(s,ms)
        end
        a=tonumber(a) or 0;cr=tonumber(cr) or 0
        local now=type(s.now)=='number' and s.now or 0
+       -- Keep unreported increments pending until the logging interval expires.
+       -- Save reloads can rewind the clock or reset native lifetime counters.
+       if (r.counterClock and now<r.counterClock) or a<r.amputations or cr<r.crushes then
+        r.nextReport=nil
+       end
+       r.counterClock=now
+       if a<r.amputations or cr<r.crushes then r.amputations=0;r.crushes=0 end
        if (a>r.amputations or cr>r.crushes) and now>=(r.nextReport or 0) then
         emit(s,r,'BLOCKED','amputations='..a..' crushes='..cr)
         r.nextReport=now+10
+        r.amputations=a;r.crushes=cr
        end
-       r.amputations=a;r.crushes=cr
       end
      end
     end
