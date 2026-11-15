@@ -9,6 +9,7 @@ local Work=require('Core.NPC.RoleAI')
 local Catalog=require('Core.NPC.Catalog')
 local Duty=require('Core.NPC.Duty')
 local Residence=require('Core.NPC.Residence')
+local NoSever=require('Core.NPC.NoSever')
 local M={}
 local FRAME_STEP=40
 local ARRIVAL_RADIUS=26
@@ -432,6 +433,9 @@ function M.new(cfg)
    emit(s,'MONITOR_PAUSED',tostring(err),'pause_'..tostring(err))
    return
   end
+  -- Register before delivery/work safety gates, including unconscious or
+  -- carrying NPCs. Native lifetime/race hooks remove stale registrations.
+  NoSever.tick(s,ms)
   -- A saved role package proves delivery already ended; a patrol/medic may be away.
   if s.saved and (s.phase=='WAIT_ACTIVE' or s.phase=='WAIT_BUILDING') then
    local lead=Live.call(ap,'getSquadLeader')

@@ -1,5 +1,5 @@
 -- Load the small SDK module only when needed. It uses the existing installed
--- KenshiLua/KenshiLib; neither DLL is replaced and no RE_Kenshi hook is added.
+-- KenshiLua/KenshiLib. The module owns scoped medical detours for NoSever.
 local M={};local module,attempted,errorText
 local function load()
  if attempted then return module,errorText end;attempted=true
@@ -20,5 +20,16 @@ function M.create(factory,data,b,faction,p,q)
  local m,why=load();assert(m,why or errorText or 'NATIVE_MODULE_UNAVAILABLE')
  local base,err=m.createNode(factory,data,b,faction,p.x,p.y,p.z,q.w,q.x,q.y,q.z)
  assert(base,err or 'NATIVE_NODE_MARSHAL_FAILED');return base
+end
+function M.protectLimbs(med,race)
+ local m,why=load()
+ if not m then return false,why or errorText end
+ if m.limbProtectionABI~=1 or type(m.protectLimbs)~='function' then return false,'NOSEVER_NATIVE_API_MISSING'end
+ return m.protectLimbs(med,race)
+end
+function M.unprotectLimbs(med)
+ local m=load()
+ if m and type(m.unprotectLimbs)=='function' then return m.unprotectLimbs(med)end
+ return false,'NOSEVER_NATIVE_API_MISSING'
 end
 return M

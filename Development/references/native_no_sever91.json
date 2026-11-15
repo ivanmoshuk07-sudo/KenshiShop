@@ -1,0 +1,80 @@
+{
+  "scope": "Native prevention of future limb loss for registered KenshiShop actors of 14 custom NoSever races; actual game execution not available here.",
+  "confirmed_input": {
+    "actor_platoon": "KS Town Merchants_5",
+    "actor_race": "7117-KenshiShop.mod",
+    "medical_limbs_bitfield": 16,
+    "missing": "left_leg",
+    "medical_limb_sids": [
+      "7001-KenshiShop.mod",
+      "7002-KenshiShop.mod",
+      "7003-KenshiShop.mod",
+      "7004-KenshiShop.mod"
+    ],
+    "fcs_severance": false,
+    "conclusion": "Static FCS flags did not prevent actual limb loss. The alpha90 configuration-only claim was insufficient."
+  },
+  "implementation": {
+    "native_hooks": [
+      "MedicalSystem::amputate",
+      "MedicalSystem::crushLimb"
+    ],
+    "scope": "Only registered actual MedicalSystem pointers of exact 7101-7106 and 7110-7117 custom race IDs. Vanilla race IDs rejected.",
+    "cleanup": [
+      "MedicalSystem::_DESTRUCTOR",
+      "MedicalSystem::notifyRaceChange"
+    ],
+    "addresses": "KenshiLib exported stubs resolved with GetRealAddress and installed with AddHook; no hardcoded game RVA or member offsets.",
+    "threads": "SRW lock protects the native registry; detours do not call Lua.",
+    "module_lifetime": "Module pinned until process exit; registry intentionally process-lived.",
+    "registration": "Controller member scan before delivery/work safety gates, including unconscious/carried actors.",
+    "health_changes": false,
+    "restore_already_lost_limbs": false,
+    "ai_hooks": false
+  },
+  "bridge": {
+    "dll_sha256": "4d43b326e3943a07791da9fd77a23a295a531952aa37ee2208b2a43eb6e63085",
+    "source_sha256": {
+      "Development/NativeBridge/KenshiShopNative.cpp": "11f4f91a48ef949d7b26f38882a685db4c1ed72b467cf7fea139be093e54e95b",
+      "Development/NativeBridge/LimbProtection.h": "23a26e4edf80872bda74dbf61e5d3a0626f80115e9f2078f350452471e3e0c50",
+      "Development/NativeBridge/vendor/KenshiLua.h": "b6b98d9d7afa06780837557c2403691440f9d4d25e0ef4ae8c66192b3c5ceb64",
+      "Development/NativeBridge/tests/FactoryStub.cpp": "0e61a5390c054a6a2cd3f97e5117998ff23209179ba79d46cfbf4f3e1dd4e578",
+      "Development/NativeBridge/tests/RuntimeStub.cpp": "0a3308ada5081b6cc206edba246ead8c00b5b0eed18f8a02e0a973a95f583265",
+      "Development/NativeBridge/tests/LoadProbe.cpp": "c0a4c68a73491bf28646c22b5c53799abcd7db126ff90a37a23f1778889b397b"
+    },
+    "build_source_commit": "41784e47d66e85e274613300ad9f869c591a7da5",
+    "build_and_probe": "https://github.com/ivanmoshuk07-sudo/KenshiShop/actions/runs/43729190574",
+    "sdk_abi_version": 1,
+    "sdk_abi_bytes": 328,
+    "imports": [
+      "KERNEL32.dll"
+    ],
+    "checks": [
+      "original node marshalling ABI",
+      "normal race rejection",
+      "registered actor amputation/crush suppressed for all four limbs",
+      "unregistered actor forwarded",
+      "destructor removes stale registration",
+      "race change removes registration",
+      "explicit unregister forwarded afterwards"
+    ],
+    "probe_limit": "Synthetic public KenshiLib exports exercise callbacks/forwarding and lifecycle policy, not game damage simulation or real in-game hook installation."
+  },
+  "unchanged": [
+    "All 227 FCS records and .mod bytes",
+    "Rescue and bed continuation from alpha90",
+    "Patrol and shop/chief shifts",
+    "Furniture and stock",
+    "Race anatomy, HP and statistics"
+  ],
+  "sources_context": [
+    {
+      "url": "https://steamcommunity.com/app/233860/discussions/3/4411920485713708682/",
+      "use": "Public modding discussion of FCS limitations; not proof of our runtime behavior."
+    },
+    {
+      "url": "https://github.com/BFrizzleFoShizzle/KenshiLib/blob/master/Include/core/Functions.h",
+      "use": "KenshiLib GetRealAddress/AddHook ABI; actual locally inspected source/export table used."
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  ".github/workflows/native-bridge.yml": "0f2f679d3c735c7224f7b6a1be634774b0ce3502ab690690909d21bb12ccc3de",
+  ".github/workflows/release.yml": "6a02adc3285d4ff0b86c90a00c4e7aa119fbb93800b86a7e73f99fa9b7ee1b60",
+  "Development/NativeBridge/KenshiShopNative.cpp": "11f4f91a48ef949d7b26f38882a685db4c1ed72b467cf7fea139be093e54e95b",
+  "Development/NativeBridge/LimbProtection.h": "23a26e4edf80872bda74dbf61e5d3a0626f80115e9f2078f350452471e3e0c50",
+  "Development/NativeBridge/README.md": "e6721f32e5cc54b2b2e72bbe9117aaf7505b3989977bfa689f99fdeda8312948",
+  "Development/NativeBridge/tests/FactoryStub.cpp": "0e61a5390c054a6a2cd3f97e5117998ff23209179ba79d46cfbf4f3e1dd4e578",
+  "Development/NativeBridge/tests/RuntimeStub.cpp": "0a3308ada5081b6cc206edba246ead8c00b5b0eed18f8a02e0a973a95f583265",
+  "Development/references/native_no_sever91.json": "5d07d0205e6cc29a7318bca0cba0a944e7806f89040890fbe2857b2f76f6c652",
+  "Development/tests/data91.py": "12eac61a6be71552c44513b395fdaf689cbbdc44ed7bde28a39a0a4a1aa98127",
+  "Development/tests/limbs91.lua": "294b5bd7f945e637972bce3e5d125fcdeb3b8676c63b2cb0ff03548053899b1c",
+  "Development/tests/run_lua.py": "82bf8ba590742bb802cb01ffa7fbea29a6689cf76dfb51fe625b5350c1cfdc9b",
+  "KenshiShop/native/KenshiShopNative.dll": "4d43b326e3943a07791da9fd77a23a295a531952aa37ee2208b2a43eb6e63085",
+  "KenshiShop/scripts/Core.lua": "871cf48f91feaffe1ff94ddf87d324046acb54d3cfe7a188687ca059b75ac854",
+  "KenshiShop/scripts/Core/NPC/Controller.lua": "244ddaa741e7dfa08eafdebe88612d29b6bc3c97848480a3f0b7e3640649b47f",
+  "KenshiShop/scripts/Core/NPC/NativeBridge.lua": "362e84b750a300f2cb925d1eb80a3699b5d7905a1d93b3179588d09403b89d89",
+  "KenshiShop/scripts/Core/NPC/NoSever.lua": "4f63488612e136153ba8a76587cdac8a88bbedaf0aa19a6180d88f7eff571039",
+  "KenshiShop/scripts/KenshiLuaConsole.lua": "5da69ae7946c460c23c3e8140382ab9b38a936ca0d408fe9876f12914660a605",
+  "README.md": "97b8d2239a26440505aa027a23c50c8014c90bb725dafb2e803db82cae52adb8",
+  "README_ALPHA91_RU.md": "f769cc5b99eb22a72af8f4ffbccb48ecc73efe1c2167394e1de3167afe111a77",
+  "RELEASE_NOTES.md": "e4500be0a6637642e92e4e50a4c6ed0304467fa932c6b26fa2ec746aa07c7835"
+}
