@@ -24,10 +24,11 @@ jobs:
           lua Development/tests/controller.lua KenshiShop/scripts
           lua Development/tests/duty.lua KenshiShop/scripts
           lua Development/tests/service86.lua KenshiShop/scripts
-      - name: Validate binary data and original node coordinates against alpha.85
+          lua Development/tests/native87.lua KenshiShop/scripts
+      - name: Validate binary data and original node coordinates against alpha.86
         run: |
-          git show v0.3.0-alpha.85:KenshiShop/KenshiShop.mod > /tmp/kenshishop-alpha85.mod
-          python Development/tests/data86.py /tmp/kenshishop-alpha85.mod KenshiShop/KenshiShop.mod
+          git show v0.3.0-alpha.86:KenshiShop/KenshiShop.mod > /tmp/kenshishop-alpha86.mod
+          python Development/tests/data87.py /tmp/kenshishop-alpha86.mod KenshiShop/KenshiShop.mod
       - name: Choose the version
         id: version
         env:

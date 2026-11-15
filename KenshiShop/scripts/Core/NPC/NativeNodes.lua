@@ -16,7 +16,7 @@ function M.ensure(s,b)
  local physical=tostring(root)
  local r=buildings[s.key]
  if not r or r.gm~=gm or r.physical~=physical then
-  r={gm=gm,physical=physical,created={},attached={},tries=0};buildings[s.key]=r
+  r={gm=gm,physical=physical,created={},tries=0};buildings[s.key]=r
  end
  if r.done then return true end
  if r.tries>=3 then return false,'NODE_SETUP_FAILED'end
@@ -33,16 +33,16 @@ function M.ensure(s,b)
     local pos,rot=Transform.world(b:getPosition(),b:getOrientation(),b:getScale(),p.entry)
     local node=world.theFactory:createLocationNode(true,p.data,pos,b,b:getFaction(),rot,nil,p.id)
     assert(node and not tostring(node):find('(nil)',1,true),'LOCATION_NODE_CREATE_FAILED')
-    -- Do not dereference lightuserdata; use the documented building node ID API.
+    -- Keep the opaque pointer opaque; registration belongs to the factory.
     r.created[p.index]=true
    end
-   if not r.attached[p.index]then b:addUsageNode(p.id);r.attached[p.index]=true end
   end
-  b:updateUsageNodes();b:forceValidUsageNodesValidation()
+  -- addToNodeListAutomatically=true registers LocationNodes by parent building.
+  -- Building.addUsageNode is for NODE_USE (4), not these post types (0/1/2).
  end)
  if not ok then r.tries=r.tries+1;return false,'NATIVE_NODE_SETUP '..tostring(err)end
  r.done=true
- Log.console('NPC_NATIVE_NODES85 shop='..s.cfg.shop..' building='..s.key..' count='..#pending..' factory=createLocationNode furniture_changes=0 selection=UNVERIFIED')
+ Log.console('NPC_NATIVE_NODES87 shop='..s.cfg.shop..' building='..s.key..' count='..#pending..' factory=createLocationNode furniture_changes=0 registration=factory_auto selection=SEE_WORK_AUDIT')
  return true
 end
 return M

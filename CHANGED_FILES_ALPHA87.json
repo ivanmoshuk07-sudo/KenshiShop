@@ -1,0 +1,22 @@
+{
+  ".github/workflows/release.yml": "90cc895430eb72c376e1e7dcc23305303acf86dd19ffc1d7b5ddb7c7b8578988",
+  "Development/build_alpha87.py": "be6d455612f0e714482e9e6d75963baeb41ec543cc30d76c3c87ef95fcec2cab",
+  "Development/references/native_work87.json": "e010920609cc0162501e06247aaa30b3a671f25471a885388a3f1144c2a02094",
+  "Development/tests/data87.py": "bef7c189f4d7dc4489157754aca3e007402a4141c6e6e332afe0d5250e9e99ab",
+  "Development/tests/duty.lua": "0ca073fe8445575c0bf1112b8291379c106444c664e14122fbb3e0b8e7016355",
+  "Development/tests/native87.lua": "aee809adee9902f5ee3d6488586cffa461de1fa7ec20bc2265b2aaf50cd9ca23",
+  "Development/tests/run_lua.py": "ffaba7002220e6194e1c0e391de379c89a32f1da8481fe78c9eab5cfebba3e6a",
+  "Development/tests/runtime.lua": "eb25c3acbd59caafeede8bd7cff25b3d499e32f13d0cbe1c4c6988490b68b795",
+  "Development/tests/service86.lua": "2392694402ad2963c9c5436598c87ef2632312e100436d24229892e360eea28a",
+  "KenshiShop/KenshiShop.mod": "1da4688f3da51ee6243db60e86add1eec3a03401183fdd75f598c5c0d8155e71",
+  "KenshiShop/scripts/Core.lua": "1ccac20b3d3d6d07bb61ce53282f43c740623fc482a0d88b048c1e9372da731f",
+  "KenshiShop/scripts/Core/NPC/Duty.lua": "355c4fcac191c65fac32f13d533abf0ba2798dc9799ab36836f2133d81f0f51b",
+  "KenshiShop/scripts/Core/NPC/NativeActivation.lua": "95b7a1774409d7fccd34c18aa406d35ee8d45c8a1aec62ad3d4688ef6228dca1",
+  "KenshiShop/scripts/Core/NPC/NativeNodes.lua": "09da92c27449ebe35b9c8a5a767fde30eab66e47eb049370d30060a622d1a534",
+  "KenshiShop/scripts/Core/NPC/PostAudit.lua": "ebe7cbe551bec30dfd5e1a389c551cff9fe9029d0c9f428edb5f487888729f7a",
+  "KenshiShop/scripts/Core/NPC/RoleAI.lua": "6c6fa42ea810926c3e48adc8abe9595bf27b387c4048a9c03babaee16868ffdb",
+  "KenshiShop/scripts/KenshiLuaConsole.lua": "0bb4a247074acc51d9c7bbf345d864bca210123153b00a29bf375a183c5ed67b",
+  "README.md": "dea38193fa0b8a42508574abb00db1b59c555ac7208f7443471f4c0390813ddb",
+  "README_ALPHA87_RU.md": "1f3b1fa90928e15f9a0c06ff4a3df01202d952fee4923b9cd9915a5fff94e544",
+  "RELEASE_NOTES.md": "c99f8794118c97aeba62b30f753980afe50588233765a5158a4fe393309b9441"
+}

@@ -6,22 +6,23 @@ local Goals=require('Core.NPC.NativeGoals')
 local Home=require('Core.NPC.HomeAssignment')
 local Service=require('Core.NPC.ServiceTown')
 local Origin=require('Core.NPC.OriginTown')
+local Activate=require('Core.NPC.NativeActivation')
 local M={}
 function M.isWorkingPackage(cfg,name)
  local _,label=M.package(cfg)
  if not label then return false end
- for _,version in ipairs({'KS86','KS85','KS84','KS83','KS82'})do
-  if name==label:gsub('KS86',version)then return true end
+ for _,version in ipairs({'KS87','KS86','KS85','KS84','KS83','KS82'})do
+  if name==label:gsub('KS87',version)then return true end
  end
  return name==({trader=(cfg.shop=='bar' or cfg.shop=='robotics') and 'KS Native Trader 24h' or 'KS Native Trader 06-23',guard='KS Native Indoor guards',chief='KS Native Police chief',patrol='KS Native Town patrol'})[cfg.role]
 end
 function M.package(cfg)
  if cfg.role=='trader' then
-  if cfg.shop=='bar' or cfg.shop=='robotics' then return '8600-KenshiShop.mod','KS86 Trader 24h' end
-  return '8601-KenshiShop.mod','KS86 Trader 06-23'
- elseif cfg.role=='guard' then return '8602-KenshiShop.mod','KS86 Indoor guards'
- elseif cfg.role=='chief' then return '8603-KenshiShop.mod','KS86 Police chief'
- elseif cfg.role=='patrol' then return '8604-KenshiShop.mod','KS86 Town patrol' end
+  if cfg.shop=='bar' or cfg.shop=='robotics' then return '8700-KenshiShop.mod','KS87 Trader 24h' end
+  return '8701-KenshiShop.mod','KS87 Trader 06-23'
+ elseif cfg.role=='guard' then return '8702-KenshiShop.mod','KS87 Indoor guards'
+ elseif cfg.role=='chief' then return '8703-KenshiShop.mod','KS87 Police chief'
+ elseif cfg.role=='patrol' then return '8704-KenshiShop.mod','KS87 Town patrol' end
 end
 local function say(s,event,why)
  Log.console('NPC_ROLE_'..event..' shop='..s.cfg.shop..' role='..s.cfg.role..' building='..s.key..' '..tostring(why or ''))
@@ -122,11 +123,8 @@ function M.ensure(s,ms)
  if r.installed then r.missionDrifts=(r.missionDrifts or 0)+1 end
  local bound,why=Service.bind(s,bb)
  if not bound then return fail(s,r,'SERVICE_ASSIGN '..tostring(why)) end
- for _,mate in ipairs(ms)do
-  local orders=Live.call(mate.char,'getOrdersReciever')
-  local yes,err=pcall(function()orders:setNeedGOAP()end)
-  if not yes then return fail(s,r,'GOAP_WAKE_FAILED '..mate.key..' '..tostring(err))end
- end
+ local awake,err=Activate.ensure(r,ms)
+ if not awake then return fail(s,r,'NATIVE_ACTIVATION '..tostring(err)) end
  r.done=true;r.installed=true
  say(s,'READY','package='..id..' label='..label..' service='..tostring(Origin.id(s.building:getTown()))..' native_care=58,57,148 gameplay=UNVERIFIED')
  return true

@@ -1,0 +1,66 @@
+{
+  "version": "alpha.87",
+  "scope": "Static native/source comparison and mocked API tests, no game execution.",
+  "sources": [
+    {
+      "url": "https://github.com/harvicusdev-glitch/SentientSands/blob/5ae9114b375f3a5add35643a1cc4ae195c5816a9/src/GameActions.cpp#L151-L173",
+      "finding": "setupAI/setupPlatoonAI, assign home, then reThinkCurrentAIAction; only the final rethink sequence is adopted for our already-native NPCs."
+    },
+    {
+      "url": "https://github.com/Au2942/KenshiPlugins/blob/c15918165add78a1a424c01967b200b4d3128394/SquadAutonomy/src/SquadAutonomySettings.cpp#L524-L563",
+      "finding": "Sets per-member StateBroadcastData.homeBuilding and squad native home building; alpha.86 already matches this part."
+    }
+  ],
+  "vanilla_follow": {
+    "sid": "1166-gamedata.base",
+    "name": "Follow leader",
+    "type": 22,
+    "fields": {
+      "classification": 2,
+      "ending": 0,
+      "enum": 141,
+      "targeting": 2
+    },
+    "refs": {},
+    "provenance": {
+      "classification": "gamedata.base",
+      "ending": "gamedata.base",
+      "enum": "gamedata.base",
+      "targeting": "gamedata.base"
+    },
+    "sources": [
+      "gamedata.base"
+    ]
+  },
+  "local_native_evidence": {
+    "exe_sha256": "a596ab4e407c67b58599c54ffb32dc1bf2b64510cdebd3fa9359ef05a576aeb1",
+    "embedded_version": "1.0.68 Steam",
+    "AI_findNode_RVA": "0x99e920",
+    "AI_findShopkeeperNode_RVA": "0x99ec70",
+    "factory_createLocationNode_RVA": "0x57c860",
+    "NodeList_add_RVA": "0x38a2e0",
+    "NodeList_get_nodes_for_home_building_RVA": "0x38c2f0",
+    "NodeList_get_usage_node_RVA": "0x38aa40",
+    "facts": [
+      "findNode passes StateBroadcastData.homeBuilding to NodeList when forHomeBuildingOnly is true.",
+      "findShopkeeperNode returns a constant float score even if output hand is null; audit must check the hand.",
+      "createLocationNode(true,...) calls NodeList.add and registers the parent building handle.",
+      "NODE_USE entries have a separate NodeList map and identifier; Building.addUsageNode addresses these entries.",
+      "Factory reads floor from supplied GameSaveState state; nil state leaves floor 0. Upper-floor creation not repaired by this patch."
+    ],
+    "limit": "Static inspection of supplied 1.0.68 EXE; tested user log says 1.0.65. No hardcoded addresses added to mod."
+  },
+  "dll_api_string_check": {
+    "sha256": "f520cba3cf8025e4a55e7202a90f49b8ea6fbb92213581ce6914985ba57cc320",
+    "names": [
+      "getAI",
+      "resultsCache",
+      "resetAllCaches",
+      "reThinkCurrentAIAction",
+      "findShopkeeperNode",
+      "findGuardNodeForBuilding_indoorOnly",
+      "findGuardNodeForBuilding_inOrOut"
+    ]
+  },
+  "qualification": "No claim that cache refresh alone is the proven unique cause of post idling, or that every work post is fixed until game test. No coordinate/job order loops added."
+}

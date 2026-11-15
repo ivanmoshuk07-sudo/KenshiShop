@@ -65,7 +65,8 @@ local function fixture(initial)
   local broadcast={}
   local c={getHandle=function()return handle(id)end,getStateBroadcast=function()return broadcast end,
    getBlackboard=function()return bb end,getOwnerships=function()return own end,
-   setupPlatoonAI=function()end,getCarryingObject=function()return handle(nil)end,
+   getAI=function()return {resultsCache={resetAllCaches=function()end}}end,
+  reThinkCurrentAIAction=function()end,setupPlatoonAI=function()end,getCarryingObject=function()return handle(nil)end,
    getOrdersReciever=function()return {goals={},hasOrders=function()return false end,setNeedGOAP=function()wakes=wakes+1 end}end}
   for _,key in ipairs({'isDead','isDown','isUnconcious','isCrippled','isBeingCarried','isInCombatMode','isFleeing'})do c[key]=function()return busy end end
   return {key=id,char=c}
@@ -77,7 +78,7 @@ local function fixture(initial)
  local b={getHandle=function()return handle('building')end,getTown=function()return service end,
  getFaction=function()return npc end,getPosition=function()return {x=0,y=0,z=0}end,isValid=function()return true end}
  state={key='building',platoon=p,building=b,cfg={role='guard',shop='weapons',count=2,faction='400-KenshiShop.mod',template='staff'}}
- function getGameWorld()return {gamedata={getData=function()return {name='KS86 Indoor guards'}end}}end
+ function getGameWorld()return {gamedata={getData=function()return {name='KS87 Indoor guards'}end}}end
  return state
 end
 test('new origin selection excludes every player outpost, ruins and hostile towns',function()
@@ -142,14 +143,14 @@ test('higher-priority mission override fails readback; handoff stops after three
  for i=1,8 do assert(not Work.ensure(state,ms))end
  assert(state.work.tries==3 and not state.work.done and replacements==1 and wakes==0)
 end)
-test('saved KS85 package migrates once, does not force stock and keeps original native home',function()
- fixture(origin);bb.name='KS85 Indoor guards'
+test('saved KS86 package migrates once, does not force stock and keeps original native home',function()
+ fixture(origin);bb.name='KS86 Indoor guards'
  assert(Work.isWorkingPackage(state.cfg,bb.name));assert(Work.ensure(state,ms))
  assert(Work.ensure(state,ms));assert(replacements==1 and wakes==2 and not state.work.upgraded)
  assert(owns._homeTown==origin and O.handleID(activePackage.missionTown)=='service')
 end)
-test('restored KS86 package without a mission handle rebinds without replacing package',function()
- fixture(origin);bb.name='KS86 Indoor guards'
+test('restored KS87 package without a mission handle rebinds without replacing package',function()
+ fixture(origin);bb.name='KS87 Indoor guards'
  assert(Work.ensure(state,ms) and replacements==0 and Service.verify(state,bb))
 end)
 test('mission drift repairs are bounded, without changing origin or package',function()
@@ -161,7 +162,7 @@ end)
 test('later native packages and combat are not overridden by mission monitoring',function()
  fixture(origin);assert(Work.ensure(state,ms));local count=replacements
  bb.name='Native contracted job';assert(not Work.ensure(state,ms));assert(replacements==count)
- bb.name='KS86 Indoor guards';assert(Work.ensure(state,ms) and state.work.missionDrifts==nil)
+ bb.name='KS87 Indoor guards';assert(Work.ensure(state,ms) and state.work.missionDrifts==nil)
  activePackage.missionTown=handle('origin');busy=true
  assert(not Work.ensure(state,ms) and state.work.tries==0)
  busy=false;assert(Work.ensure(state,ms) and replacements==count)

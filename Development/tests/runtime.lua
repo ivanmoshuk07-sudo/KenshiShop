@@ -31,14 +31,15 @@ local function member(key)
   getOrdersReciever=function()return {goals={},setNeedGOAP=function()end,hasOrders=function()return false end}end,
   getBlackboard=function()return bb end,
   getCarryingObject=function()return {isNull=function()return not carrying end}end,
-  setupPlatoonAI=function() if failMember==key then error('temporarily unavailable')end;setupCount=setupCount+1 end}
+  getAI=function()return {resultsCache={resetAllCaches=function()end}}end,
+  reThinkCurrentAIAction=function()end,setupPlatoonAI=function() if failMember==key then error('temporarily unavailable')end;setupCount=setupCount+1 end}
  for _,name in ipairs({'isDead','isDown','isUnconcious','isCrippled','isBeingCarried','isInCombatMode','isFleeing'})do c[name]=function()return busy end end
  return {key=key,char=c}
 end
 local a,b=member('leader'),member('mate')
 local ap={getSquadLeader=function()return a.char end,getSquadSize=function()return 2 end}
 local p={getSquadType=function()return 1 end,getFaction=function()return faction end,getActivePlatoon=function()return ap end,getOwnerships=function()return owns end}
-local gm={getData=function(_,id)return {name='KS86 Indoor guards'}end}
+local gm={getData=function(_,id)return {name='KS87 Indoor guards'}end}
 function getGameWorld()return {gamedata=gm}end
 local function state()
  owns._homeTown=origin;currentPackage={};p.myBaseHomeTownData=nil
@@ -46,9 +47,9 @@ local function state()
  return {cfg={shop='bar',role='guard',count=2,faction='400-KenshiShop.mod'},key='home',platoon=p,building={getHandle=function()return {toString=function()return 'home'end}end,getFaction=function()return faction end,getTown=function()return town end,getPosition=function()return {x=0,y=0,z=0}end}}
 end
 test('roles choose 24h/day/guard/chief/patrol packages',function()
- for _,x in ipairs({{'bar','trader','8600'},{'robotics','trader','8600'},{'engineering','trader','8601'},
-  {'weapons','trader','8601'},{'armour','trader','8601'},{'bar','guard','8602'},
-  {'police','chief','8603'},{'police','patrol','8604'}})do
+ for _,x in ipairs({{'bar','trader','8700'},{'robotics','trader','8700'},{'engineering','trader','8701'},
+  {'weapons','trader','8701'},{'armour','trader','8701'},{'bar','guard','8702'},
+  {'police','chief','8703'},{'police','patrol','8704'}})do
   local id=Work.package({shop=x[1],role=x[2]});assert(id==x[3]..'-KenshiShop.mod')
  end
 end)
@@ -80,13 +81,13 @@ test('partial member setup retries without replacing package again',function()
  failMember=nil;assert(Work.ensure(s,{a,b}));assert(replaceCount==1 and setupCount==2)
 end)
 test('saved matching package still finishes member setup',function()
- local s=state();label='KS86 Indoor guards';assert(Work.ensure(s,{a,b}));assert(replaceCount==0 and setupCount==2)
+ local s=state();label='KS87 Indoor guards';assert(Work.ensure(s,{a,b}));assert(replaceCount==0 and setupCount==2)
 end)
 test('saved alpha.81 and alpha.82 packages are recognized, then migrated once',function()
  for _,old in ipairs({'KS Native Indoor guards','KS82 Indoor guards','KS83 Indoor guards','KS84 Indoor guards','KS85 Indoor guards'})do
   local s=state();label=old
   assert(Work.isWorkingPackage(s.cfg,label));assert(Work.ensure(s,{a,b}))
-  assert(not s.work.upgraded and label=='KS86 Indoor guards' and replaceCount==1)
+  assert(not s.work.upgraded and label=='KS87 Indoor guards' and replaceCount==1)
   assert(Work.ensure(s,{a,b}) and replaceCount==1)
  end
 end)

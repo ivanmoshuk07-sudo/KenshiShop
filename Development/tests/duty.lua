@@ -26,8 +26,8 @@ end
 test('trader and separate guard share exactly one native node set, zero furniture calls',function()
  local s,b,calls,ids=fixture();assert(Nodes.ensure(s,b));s.cfg.role='guard'
  for i=1,100 do assert(Nodes.ensure(s,b))end
- assert(calls.created==15 and calls.attached==15 and calls.physical==0)
- for _,v in pairs(ids)do assert(v.attached)end
+ assert(calls.created==15 and calls.attached==0 and calls.physical==0)
+ for _,v in pairs(ids)do assert(not v.attached)end
 end)
 test('node positions transform existing posts into world space without moving furniture',function()
  local s,b,_,ids=fixture();assert(Nodes.ensure(s,b));local p
@@ -35,11 +35,14 @@ test('node positions transform existing posts into world space without moving fu
  assert(p)
  assert(math.abs(p.x-63.1220436)<0.0001 and math.abs(p.y-14.64026594)<0.0001)
 end)
-test('partial node attachment failure never recreates a successfully created node',function()
- local s,b,calls=fixture();local add=b.addUsageNode;local fail=true
- function b:addUsageNode(id)if fail then fail=false;error('temporarily unavailable')end;return add(self,id)end
+test('partial factory failure never recreates a successfully created node',function()
+ local s,b,calls=fixture();local create=world.theFactory.createLocationNode;local attempts=0
+ function world.theFactory:createLocationNode(...)
+  attempts=attempts+1;if attempts==2 then error('temporarily unavailable')end
+  return create(self,...)
+ end
  assert(not Nodes.ensure(s,b));assert(calls.created==1)
- assert(Nodes.ensure(s,b));assert(calls.created==15 and calls.attached==15)
+ assert(Nodes.ensure(s,b));assert(calls.created==15 and calls.attached==0)
 end)
 test('unloaded buildings defer without using the finite node failure budget',function()
  local s,b,calls=fixture();local physical=false;b.isPhysical=function()return physical end

@@ -1,6 +1,7 @@
 -- Read-only observation. Movement, target selection, combat, work and recovery
 -- belong to native FCS packages. No scripted route or post movement scheduler.
 local Live=require('Core.NPC.LiveState')
+local Audit=require('Core.NPC.PostAudit')
 local M={}
 function M.tick(s,ms)
  local d={members={}};s.duty=d
@@ -9,6 +10,7 @@ function M.tick(s,ms)
   local g=Live.call(o,'getCurrentGoal');local key=Live.call(g,'key')
   d.members[m.key]={state=key and ('NATIVE_TASK_'..key) or 'NATIVE_TASK_UNKNOWN'}
  end
+ Audit.observe(s,ms)
  return true
 end
 function M.status(s)
