@@ -4,8 +4,25 @@ local Live=require('Core.NPC.LiveState')
 local Transform=require('Transform')
 local Posts=require('Core.NPC.PostData')
 local Log=require('Diagnostics')
+local Native=require('Core.NPC.NativeBridge')
 local M={}
 local buildings={}
+local function field(o,k)local ok,v=pcall(function()return o[k]end);if ok then return v end end
+-- SDK extension wraps the existing factory result as its RootObject base. NPCs
+-- remain in their platoon containers even while inside; their container must
+-- never be passed to the generic building/interior factory.
+local function typed(s,b,data,pos,rot,floor,outside)
+ assert(field(field(data,'bdata'),'is node')==true,'NOT_A_NODE_TEMPLATE')
+ local base=Native.create(getGameWorld().theFactory,data,b,b:getFaction(),pos,rot)
+ assert(base and base:getDataType()==54,'NODE_TYPE_VERIFY_FAILED')
+ local h=base:getHandle();local root=base
+ assert(root,'NODE_ROOT_UNAVAILABLE')
+ root:setFloor(floor)
+ if outside then local empty=root.isInsideBuilding;empty:setNull();root.isInsideBuilding=empty end
+ assert(root:getFloor()==floor,'NODE_FLOOR_VERIFY_FAILED')
+ assert(outside and root.isInsideBuilding:isNull() or (not outside and root.isInsideBuilding:toString()==s.key),'NODE_INTERIOR_VERIFY_FAILED')
+ return {base=base,handle=h,root=root,floor=floor,outside=outside}
+end
 -- With a parent building, the native factory applies parent rotation and
 -- translation itself. Scale the LOCAL offset, but do not convert it to world.
 function M.localPose(b,p)
@@ -53,10 +70,19 @@ function M.ensure(s,b)
   for _,p in ipairs(pending)do
    if not r.created[p.index]then
     local pos,rot=M.localPose(b,p.entry)
-    local node=world.theFactory:createLocationNode(true,p.data,pos,b,b:getFaction(),rot,nil,p.id)
-    assert(node and not tostring(node):find('(nil)',1,true),'LOCATION_NODE_CREATE_FAILED')
-    -- Keep the opaque pointer opaque; registration belongs to the factory.
-    r.created[p.index]=true
+    if Native.available() and not r.bridgeFailed then
+     local good,node=pcall(typed,s,b,p.data,pos,rot,p.entry.floor,false)
+     if good then r.created[p.index]=node
+     else
+      r.bridgeFailed=tostring(node)
+      Log.console('NPC_NODE_BRIDGE89_FAIL '..r.bridgeFailed..' native_alpha88_posts_retained=true')
+     end
+    end
+    if not r.created[p.index]then
+     local node=world.theFactory:createLocationNode(true,p.data,pos,b,b:getFaction(),rot,nil,p.id)
+     assert(node and not tostring(node):find('(nil)',1,true),'LOCATION_NODE_CREATE_FAILED')
+     r.created[p.index]=true
+    end
    end
   end
   -- addToNodeListAutomatically=true registers LocationNodes by parent building.
@@ -64,7 +90,60 @@ function M.ensure(s,b)
  end)
  if not ok then r.tries=r.tries+1;return false,'NATIVE_NODE_SETUP '..tostring(err)end
  r.done=true
- Log.console('NPC_NATIVE_NODES88 shop='..s.cfg.shop..' building='..s.key..' count='..#pending..' factory=createLocationNode furniture_changes=0 registration=factory_auto input=scaled_local selection=SEE_WORK_AUDIT')
+ Log.console('NPC_NATIVE_NODES89 shop='..s.cfg.shop..' building='..s.key..' count='..#pending..' bound_nodes='..tostring(Native.available() and not r.bridgeFailed)..' factory=createLocationNode furniture_changes=0 registration=factory_auto input=scaled_local selection=SEE_WORK_AUDIT')
  return true
+end
+-- Retrieve a bound node subject. Lua never casts a lightuserdata pointer.
+-- Creation is independent of NPC location and does not issue movement orders.
+function M.target(s,b,ms,index,outside)
+ local yes,why=M.ensure(s,b);if not yes then return nil,why end
+ local r=buildings[s.key];local key=outside and 'street' or index
+ r.targets=r.targets or {};r.targetTries=r.targetTries or {}
+ local saved=r.targets[key] or (not outside and r.created[index])
+ if type(saved)=='table' then
+  local live=Live.call(saved.handle,'getRootObjectBase')
+  if not live then return nil,'NODE_HANDLE_UNAVAILABLE'end
+  -- Resolve through the native handle each time; never hand a stale wrapper
+  -- to addGoal after an unload or reset.
+  saved.base=live
+  return saved
+ end
+ if not Native.available() then return nil,'NATIVE_NODE_BRIDGE_UNAVAILABLE'end
+ if r.bridgeFailed then return nil,'NATIVE_NODE_BRIDGE_FAILED '..r.bridgeFailed end
+ if (r.targetTries[key] or 0)>=3 then return nil,'TYPED_NODE_FAILED'end
+ local p=Posts[s.cfg.shop][index]
+ local ok,result=pcall(function()
+  local pos,rot=M.localPose(b,p)
+  if outside then
+   local door=assert(Live.call(b,'getDoor'),'BUILDING_DOOR_UNAVAILABLE')
+   local wp=assert(Live.call(door,'getDoorPosOutside_extraFarOut',2),'DOOR_OUTSIDE_UNAVAILABLE')
+   local origin=b:getPosition();local q=b:getOrientation()
+   local n=q.w*q.w+q.x*q.x+q.y*q.y+q.z*q.z;assert(n>0,'INVALID_ROTATION')
+   local v={w=0,x=wp.x-origin.x,y=wp.y-origin.y,z=wp.z-origin.z}
+   local inv={w=q.w/n,x=-q.x/n,y=-q.y/n,z=-q.z/n}
+   local localPos=Transform.quat(Transform.quat(inv,v),q)
+   pos={x=localPos.x,y=localPos.y,z=localPos.z};rot={w=1,x=0,y=0,z=0}
+  end
+  local data=assert(getGameWorld().gamedata:getData(p.id,0),'NODE_TEMPLATE_MISSING')
+  local node=typed(s,b,data,pos,rot,outside and 0 or p.floor,outside)
+  if not outside then
+   local expected=Transform.world(b:getPosition(),b:getOrientation(),b:getScale(),p)
+   assert(Transform.error(node.base:getPosition(),expected)<0.75,'TYPED_NODE_POSITION_VERIFY_FAILED')
+  end
+  node.source=outside and 'native-door-outside' or p.source
+  return node
+ end)
+ if not ok then r.targetTries[key]=(r.targetTries[key] or 0)+1;return nil,tostring(result)end
+ r.targets[key]=result
+ return result
+end
+function M.available(s,index,outside,member)
+ local r=buildings[s.key];local claim=r and r.claims and r.claims[outside and 'street' or index]
+ return not claim or claim.member==member or Live.call(claim.char,'isDead')==true
+end
+function M.claim(s,index,outside,m)
+ local r=assert(buildings[s.key]);r.claims=r.claims or {}
+ for k,v in pairs(r.claims)do if v.member==m.key then r.claims[k]=nil end end
+ if index then r.claims[outside and 'street' or index]={member=m.key,char=m.char}end
 end
 return M

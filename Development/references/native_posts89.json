@@ -1,0 +1,75 @@
+{
+  "scope": "Static inspection, uploaded save/log analysis, Lua API tests and Windows native ABI probe. Kenshi gameplay not executed.",
+  "input_evidence": {
+    "save_clock": {
+      "day": 113,
+      "hour": 2,
+      "minute": 16,
+      "game_version": "1.0.68"
+    },
+    "weapon_shop_template": "103-KenshiShop.mod",
+    "weapon_shop_saved_is_public_day": 1,
+    "night_log_task": 0,
+    "night_log_status": "OFF_SHIFT",
+    "upper_nodes_reported_floor": 0,
+    "upper_nodes_layout_floor": 1
+  },
+  "native_evidence": {
+    "factory_api": "RootObjectFactory::createLocationNode",
+    "return_binding": "KenshiLua SDK pushObject(..., KenshiLua.RootObject)",
+    "rtti_location_node_bases": {
+      "RootObject": 0,
+      "RootObjectBase": 0
+    },
+    "factory_parent_pose": "scaled local position and local quaternion",
+    "npc_container": "ActivePlatoon; not a BuildingInterior even when NPC is inside",
+    "public_flag": "Building.isPublic reads publicDaytime; confirmed from Building RTTI vtable in supplied EXE",
+    "hardcoded_game_addresses_in_mod": false
+  },
+  "bridge": {
+    "sdk_source": "https://github.com/Genpretz/KenshiLua/blob/53a7e4d1dc544a6b51872d03990f97af5dded94e/include/KenshiLua.h",
+    "sdk_abi_version": 1,
+    "sdk_abi_bytes": 328,
+    "dll_sha256": "6aef1e7872ffa7c19ccb98f46e16e6a937d2f9da5082a2e3596702a9480b3412",
+    "source_sha256": {
+      "Development/NativeBridge/KenshiShopNative.cpp": "30d098961d824d14248e52107d5f71e1e5239088125e9ada74f4ec43ac0e2b57",
+      "Development/NativeBridge/vendor/KenshiLua.h": "b6b98d9d7afa06780837557c2403691440f9d4d25e0ef4ae8c66192b3c5ceb64",
+      "Development/NativeBridge/tests/FactoryStub.cpp": "146446ab6c892be986eb6531dbdc5f676a7bf75ee8abe1eb7bd52a8215b4ffeb",
+      "Development/NativeBridge/tests/RuntimeStub.cpp": "0e3fe4cd30536c0d0459627b4e818229ed89d9f70f0fd9cef1a67bb9acd4b195",
+      "Development/NativeBridge/tests/LoadProbe.cpp": "c0a4c68a73491bf28646c22b5c53799abcd7db126ff90a37a23f1778889b397b"
+    },
+    "build_source_commit": "372c46904c8391dfb32e30d3f8e933bbf0d2aca7",
+    "build_and_probe": "https://github.com/ivanmoshuk07-sudo/KenshiShop/actions/runs/43674084623",
+    "imports": [
+      "KERNEL32.dll"
+    ],
+    "probe_limit": "Synthetic SDK/factory exercise DLL loading and x64 calling/marshalling ABI only; no AI behavior is simulated or certified."
+  },
+  "native_job": {
+    "task": 51,
+    "name": "STAND_AT_NODE",
+    "priority": 2,
+    "priority_name": "TP_NON_URGENT",
+    "subject": "real LocationNode hand",
+    "rotation_game_minutes": 30,
+    "shop_hours": [
+      6,
+      23
+    ],
+    "emergencies": "defer handoff during combat/care/carrying/orders",
+    "post_completion": "read back active task, subject, NPC floor and distance separately from job installation"
+  },
+  "unchanged": [
+    "all 219 FCS records (binary byte identical)",
+    "72 original logical post definitions",
+    "physical furniture and layouts",
+    "stock/catalog",
+    "patrol role packages and delivery",
+    "origin/service town assignment"
+  ],
+  "known_limits": [
+    "Game execution and trade dialog closing need user verification.",
+    "Chief returns to an indoor post at night; no bed/sleep guarantee.",
+    "Missing native SDK/bridge keeps alpha88 package/posts and emits explicit error."
+  ]
+}

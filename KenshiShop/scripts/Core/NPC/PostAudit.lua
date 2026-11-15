@@ -23,6 +23,17 @@ function M.probe(s,c,key)
  if s.cfg.role=='trader' and s.cfg.shop~='bar' and s.cfg.shop~='robotics'
    and hour and (hour<6 or hour>=23)then row.result='OFF_SHIFT';return row end
  if row.home~=s.key then row.result='BROADCAST_HOME_MISMATCH';return row end
+ local duty=s.postDuty and s.postDuty.members and s.postDuty.members[key]
+ if active==51 and duty and duty.node then
+  row.expected=51
+  local goal=Live.call(Live.call(c,'getOrdersReciever'),'getCurrentGoal')
+  row.post=O.handleID(O.field(goal,'subject'))
+  row.result=row.post==O.handleID(duty.node.handle) and 'ASSIGNED_POST_ACTIVE' or 'ASSIGNED_POST_SUBJECT_MISMATCH'
+  local root=Live.call(O.field(goal,'subject'),'getRootObjectBase')
+  row.floor=Live.call(root,'getFloor');row.layoutFloor=duty.node.floor;row.floorMatch=row.floor==row.layoutFloor
+  row.geometry=duty.node.outside and 'NATIVE_DOOR_POST' or 'EXPLICIT_NATIVE_POST'
+  return row
+ end
  local method=({trader='findShopkeeperNode',guard='findGuardNodeForBuilding_indoorOnly',chief='findGuardNodeForBuilding_inOrOut'})[s.cfg.role]
  local ai=Live.call(c,'getAI');local fn=O.field(ai,method)
  if type(fn)~='function' then row.result='FINDER_API_UNAVAILABLE';return row end
@@ -60,7 +71,7 @@ function M.observe(s,ms)
   local ok,row=pcall(M.probe,s,m.char,m.key)
   if not ok then row={result='AUDIT_ERROR',error=tostring(row)} end
   a.rows[m.key]=row
-  Log.console('NPC_WORK_AUDIT88 shop='..s.cfg.shop..' role='..s.cfg.role..' member='..m.key
+  Log.console('NPC_WORK_AUDIT89 shop='..s.cfg.shop..' role='..s.cfg.role..' member='..m.key
    ..' observation='..a.count..'/3 expected='..tostring(row.expected)..' active='..tostring(row.active)
    ..' result='..row.result..' finder='..tostring(row.finder)..' score='..tostring(row.score)
    ..' post='..tostring(row.post)..' home='..tostring(row.home)

@@ -1,9 +1,10 @@
--- Read-only observation. Movement, target selection, combat, work and recovery
--- belong to native FCS packages. No scripted route or post movement scheduler.
+-- Native work observation plus infrequent native job/shift handoffs.
 local Live=require('Core.NPC.LiveState')
 local Audit=require('Core.NPC.PostAudit')
+local PostDuty=require('Core.NPC.PostDuty')
 local M={}
 function M.tick(s,ms)
+ PostDuty.tick(s,ms)
  local d={members={}};s.duty=d
  for _,m in ipairs(ms)do
   local o=Live.call(m.char,'getOrdersReciever')
