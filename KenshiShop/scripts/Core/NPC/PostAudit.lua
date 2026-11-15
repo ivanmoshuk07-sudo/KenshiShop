@@ -11,12 +11,14 @@ function M.probe(s,c,key)
  local active=task(c)
  local row={active=active,home=O.handleID(O.field(Live.call(c,'getStateBroadcast'),'homeBuilding'))}
  if s.cfg.role=='patrol' then
-  row.expected=key==s.work.leader and 36 or 141;row.result='NATIVE_PATROL_OR_FOLLOW';return row
+  local hour=type(s.now)=='number' and s.now/60%24
+  row.expected=hour and (hour<6 or hour>=23) and 51 or (key==s.work.leader and 36 or 141)
+  row.result=row.expected==51 and 'PATROL_NIGHT_POST' or 'NATIVE_PATROL_OR_FOLLOW';return row
  end
  row.expected=({trader=20,guard=268,chief=38})[s.cfg.role]
  local held,why=Live.halted(c)
  if held then row.result='DEFER_'..tostring(why);return row end
- if ({[25]=true,[57]=true,[58]=true,[60]=true,[105]=true,[142]=true,[148]=true})[active] then
+ if ({[25]=true,[57]=true,[58]=true,[60]=true,[70]=true,[99]=true,[100]=true,[105]=true,[106]=true,[142]=true,[148]=true})[active] then
   row.result='NATIVE_CARE';return row
  end
  local hour=type(s.now)=='number' and s.now/60%24
@@ -71,7 +73,7 @@ function M.observe(s,ms)
   local ok,row=pcall(M.probe,s,m.char,m.key)
   if not ok then row={result='AUDIT_ERROR',error=tostring(row)} end
   a.rows[m.key]=row
-  Log.console('NPC_WORK_AUDIT89 shop='..s.cfg.shop..' role='..s.cfg.role..' member='..m.key
+  Log.console('NPC_WORK_AUDIT90 shop='..s.cfg.shop..' role='..s.cfg.role..' member='..m.key
    ..' observation='..a.count..'/3 expected='..tostring(row.expected)..' active='..tostring(row.active)
    ..' result='..row.result..' finder='..tostring(row.finder)..' score='..tostring(row.score)
    ..' post='..tostring(row.post)..' home='..tostring(row.home)

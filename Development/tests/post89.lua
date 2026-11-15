@@ -17,7 +17,7 @@ local function fixture(role,shop,n)
  local container={selfType=1};local origin={x=100,y=10,z=200};local q={w=math.sqrt(0.5),x=0,y=math.sqrt(0.5),z=0}
  b={getRootNode=function()return 'physical-1'end,isPhysical=function()return true end,getScale=function()return 0.25 end,
  getPosition=function()return origin end,getOrientation=function()return q end,getFaction=function()return 'npc-faction'end,
- getDoor=function()return {getDoorPosOutside_extraFarOut=function(_,mult)assert(mult==2);return {x=101,y=10,z=210}end}end}
+ getDoor=function()return {getDoorPosOutside_extraFarOut=function(_,mult)return {x=101,y=10,z=200+5*mult}end}end}
  world={gamedata={getData=function(_,id,kind)assert(kind==0);return {stringID=id,bdata={['is node']=true}}end},theFactory={}}
  function getGameWorld()return world end
  function world.theFactory:createLocationNode()calls.opaque=calls.opaque+1;return {}end
@@ -135,7 +135,7 @@ end)
 test('assigned goal is not reported as actual arrival by readback',function()
  fixture();Duty.tick(s,ms);s.now=722;Duty.tick(s,ms)
  local found=false
- for _,line in ipairs(logs)do if line:find('NPC_POST_OBSERVE89',1,true)then assert(line:find('arrived=false',1,true));found=true end end
+ for _,line in ipairs(logs)do if line:find('NPC_POST_OBSERVE90',1,true)then assert(line:find('arrived=false',1,true));found=true end end
  assert(found)
 end)
 test('saved floor labels preserve a surviving second-floor guard across controller reload',function()
@@ -146,5 +146,35 @@ end)
 test('working patrol receives no schedule or post interventions',function()
  fixture('patrol','police',3);for i=1,200 do s.now=720+i;Duty.tick(s,ms)end
  assert(calls.jobs==0 and calls.rethinks==0 and calls.typed==0 and calls.opaque==0)
+end)
+test('three patrol members get distinct outdoor night posts at the actual tower entrance',function()
+ fixture('patrol','police',3);active=36;s.now=1380;Duty.tick(s,ms)
+ assert(calls.jobs==3 and calls.rethinks==3)
+ local positions={};local handles={}
+ for i,m in ipairs(ms)do
+  local r=s.postDuty.members[m.key];assert(r.mode=='NIGHT' and r.node.outside and r.node.floor==0)
+  assert(r.node.root.isInsideBuilding:isNull())
+  local p=r.node.base:getPosition();local key=string.format('%.3f:%.3f',p.x,p.z)
+  assert(not positions[key] and not handles[r.node.handle:toString()]);positions[key]=true;handles[r.node.handle:toString()]=true
+  assert(math.abs(p.z-210)<0.0001 and math.abs(p.x-101)<=5.001)
+ end
+ for i=1,100 do s.now=1380+i;Duty.tick(s,ms)end
+ assert(calls.jobs==3 and calls.rethinks==3)
+end)
+test('06:00 removes each night job once; native patrol/follow is left to the package',function()
+ fixture('patrol','police',3);active=141;s.now=1380;Duty.tick(s,ms)
+ active=51;s.now=1800;Duty.tick(s,ms)
+ assert(calls.jobs==3 and calls.rethinks==6)
+ for _,m in ipairs(ms)do assert(not select(2,Jobs.find(m.char)) and s.postDuty.members[m.key].mode=='DAY')end
+ for i=1,100 do s.now=1800+i;Duty.tick(s,ms)end
+ assert(calls.rethinks==6)
+end)
+test('carrying and bed continuation defer only that patrol member, then complete one night handoff',function()
+ fixture('patrol','police',3);active=36;s.now=1380
+ local carrier=ms[1].char;local carry=true
+ carrier.getCarryingObject=function()return hand(carry and 'patient' or nil)end
+ Duty.tick(s,ms);assert(calls.jobs==2)
+ carry=false;active=106;Duty.tick(s,ms);assert(calls.jobs==2)
+ active=36;Duty.tick(s,ms);assert(calls.jobs==3)
 end)
 print('Native post/shift API tests passed: '..count..'; game AI execution is not simulated')

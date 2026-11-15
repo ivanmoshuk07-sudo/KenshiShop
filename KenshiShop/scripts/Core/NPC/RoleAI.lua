@@ -11,18 +11,18 @@ local M={}
 function M.isWorkingPackage(cfg,name)
  local _,label=M.package(cfg)
  if not label then return false end
- for _,version in ipairs({'KS87','KS86','KS85','KS84','KS83','KS82'})do
-  if name==label:gsub('KS87',version)then return true end
+ for _,version in ipairs({'KS90','KS87','KS86','KS85','KS84','KS83','KS82'})do
+  if name==label:gsub('KS90',version)then return true end
  end
  return name==({trader=(cfg.shop=='bar' or cfg.shop=='robotics') and 'KS Native Trader 24h' or 'KS Native Trader 06-23',guard='KS Native Indoor guards',chief='KS Native Police chief',patrol='KS Native Town patrol'})[cfg.role]
 end
 function M.package(cfg)
  if cfg.role=='trader' then
-  if cfg.shop=='bar' or cfg.shop=='robotics' then return '8700-KenshiShop.mod','KS87 Trader 24h' end
-  return '8701-KenshiShop.mod','KS87 Trader 06-23'
- elseif cfg.role=='guard' then return '8702-KenshiShop.mod','KS87 Indoor guards'
- elseif cfg.role=='chief' then return '8703-KenshiShop.mod','KS87 Police chief'
- elseif cfg.role=='patrol' then return '8704-KenshiShop.mod','KS87 Town patrol' end
+  if cfg.shop=='bar' or cfg.shop=='robotics' then return '9000-KenshiShop.mod','KS90 Trader 24h' end
+  return '9001-KenshiShop.mod','KS90 Trader 06-23'
+ elseif cfg.role=='guard' then return '9002-KenshiShop.mod','KS90 Indoor guards'
+ elseif cfg.role=='chief' then return '9003-KenshiShop.mod','KS90 Police chief'
+ elseif cfg.role=='patrol' then return '9004-KenshiShop.mod','KS90 Town patrol' end
 end
 local function say(s,event,why)
  Log.console('NPC_ROLE_'..event..' shop='..s.cfg.shop..' role='..s.cfg.role..' building='..s.key..' '..tostring(why or ''))
@@ -63,7 +63,7 @@ function M.ensure(s,ms)
   local orders=Live.call(mate.char,'getOrdersReciever')
   if Live.call(orders,'hasOrders')~=false then busy=true;why='NATIVE_ORDERS_OR_UNKNOWN'end
   local active=Live.call(Live.call(orders,'getCurrentGoal'),'key')
-  if ({[25]=true,[57]=true,[58]=true,[60]=true,[105]=true,[142]=true,[148]=true})[active] then busy=true;why='NATIVE_CARE_'..active end
+  if ({[25]=true,[57]=true,[58]=true,[60]=true,[70]=true,[99]=true,[100]=true,[105]=true,[106]=true,[142]=true,[148]=true})[active] then busy=true;why='NATIVE_CARE_'..active end
   local carried=Live.call(mate.char,'getCarryingObject')
   if busy or not carried or Live.call(carried,'isNull')~=true then
    if not r.busyLogged then say(s,'DEFER',why or 'CARRYING_OR_UNKNOWN');r.busyLogged=true end

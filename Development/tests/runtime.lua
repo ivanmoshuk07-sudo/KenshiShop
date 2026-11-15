@@ -39,7 +39,7 @@ end
 local a,b=member('leader'),member('mate')
 local ap={getSquadLeader=function()return a.char end,getSquadSize=function()return 2 end}
 local p={getSquadType=function()return 1 end,getFaction=function()return faction end,getActivePlatoon=function()return ap end,getOwnerships=function()return owns end}
-local gm={getData=function(_,id)return {name='KS87 Indoor guards'}end}
+local gm={getData=function(_,id)return {name='KS90 Indoor guards'}end}
 function getGameWorld()return {gamedata=gm}end
 local function state()
  owns._homeTown=origin;currentPackage={};p.myBaseHomeTownData=nil
@@ -47,9 +47,9 @@ local function state()
  return {cfg={shop='bar',role='guard',count=2,faction='400-KenshiShop.mod'},key='home',platoon=p,building={getHandle=function()return {toString=function()return 'home'end}end,getFaction=function()return faction end,getTown=function()return town end,getPosition=function()return {x=0,y=0,z=0}end}}
 end
 test('roles choose 24h/day/guard/chief/patrol packages',function()
- for _,x in ipairs({{'bar','trader','8700'},{'robotics','trader','8700'},{'engineering','trader','8701'},
-  {'weapons','trader','8701'},{'armour','trader','8701'},{'bar','guard','8702'},
-  {'police','chief','8703'},{'police','patrol','8704'}})do
+ for _,x in ipairs({{'bar','trader','9000'},{'robotics','trader','9000'},{'engineering','trader','9001'},
+  {'weapons','trader','9001'},{'armour','trader','9001'},{'bar','guard','9002'},
+  {'police','chief','9003'},{'police','patrol','9004'}})do
   local id=Work.package({shop=x[1],role=x[2]});assert(id==x[3]..'-KenshiShop.mod')
  end
 end)
@@ -69,6 +69,15 @@ test('native/player orders defer package replacement without using retry budget'
  assert(not Work.ensure(s,{a,b}));assert(replaceCount==0 and s.work.tries==0)
  a.char.getOrdersReciever=old;assert(Work.ensure(s,{a,b}))
 end)
+test('finishing native bed actions defer package reset even after the carried handle becomes empty',function()
+ for _,task in ipairs({70,99,100,106})do
+  local s=state();local old=a.char.getOrdersReciever
+  a.char.getOrdersReciever=function()return {hasOrders=function()return false end,
+   getCurrentGoal=function()return {key=function()return task end}end}end
+  assert(not Work.ensure(s,{a,b}) and setupCount==0 and replaceCount==0 and s.work.tries==0)
+  a.char.getOrdersReciever=old
+ end
+end)
 test('missing origin is repaired without assigning the player town',function()
  local s=state();owns._homeTown=nil
  local calls=0
@@ -81,13 +90,13 @@ test('partial member setup retries without replacing package again',function()
  failMember=nil;assert(Work.ensure(s,{a,b}));assert(replaceCount==1 and setupCount==2)
 end)
 test('saved matching package still finishes member setup',function()
- local s=state();label='KS87 Indoor guards';assert(Work.ensure(s,{a,b}));assert(replaceCount==0 and setupCount==2)
+ local s=state();label='KS90 Indoor guards';assert(Work.ensure(s,{a,b}));assert(replaceCount==0 and setupCount==2)
 end)
 test('saved alpha.81 and alpha.82 packages are recognized, then migrated once',function()
- for _,old in ipairs({'KS Native Indoor guards','KS82 Indoor guards','KS83 Indoor guards','KS84 Indoor guards','KS85 Indoor guards'})do
+ for _,old in ipairs({'KS Native Indoor guards','KS82 Indoor guards','KS83 Indoor guards','KS84 Indoor guards','KS85 Indoor guards','KS86 Indoor guards','KS87 Indoor guards'})do
   local s=state();label=old
   assert(Work.isWorkingPackage(s.cfg,label));assert(Work.ensure(s,{a,b}))
-  assert(not s.work.upgraded and label=='KS87 Indoor guards' and replaceCount==1)
+  assert(not s.work.upgraded and label=='KS90 Indoor guards' and replaceCount==1)
   assert(Work.ensure(s,{a,b}) and replaceCount==1)
  end
 end)

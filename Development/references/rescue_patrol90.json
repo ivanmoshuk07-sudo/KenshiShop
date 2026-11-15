@@ -1,0 +1,94 @@
+{
+  "scope": "Native configuration and API tests; actual game not executed.",
+  "vanilla_rescue": {
+    "package": "50354-rebirth.mod",
+    "name": "worker fighter indie resident",
+    "goals": {
+      "51395-rebirth.mod": {
+        "task": 148,
+        "classification": 2,
+        "weight": 0
+      },
+      "2791-gamedata.base": {
+        "task": 106,
+        "classification": 2,
+        "weight": 110
+      }
+    }
+  },
+  "native_inspection": {
+    "setup_goap": "148 associates carry continuation 106; 106 uses findOwnedFreeBed",
+    "bed_finder_context": "Uses home-building/current-town context; no origin town or service town is changed by this patch.",
+    "fixed_previous_config": "148 was present without 106, at the same priority as post 51."
+  },
+  "implementation": {
+    "packages": [
+      "9000-KenshiShop.mod",
+      "9001-KenshiShop.mod",
+      "9002-KenshiShop.mod",
+      "9003-KenshiShop.mod",
+      "9004-KenshiShop.mod"
+    ],
+    "rescue_goal": {
+      "id": "9005-KenshiShop.mod",
+      "task": 148,
+      "priority": 3
+    },
+    "bed_goal": {
+      "id": "9006-KenshiShop.mod",
+      "task": 106,
+      "priority": 3,
+      "weight": 110
+    },
+    "carrying_upgrade_helper": "9007-KenshiShop.mod",
+    "pre_arrival_care": "7604-KenshiShop.mod updated to full chain",
+    "no_scripted_patient_placement": true,
+    "no_reset_during_carry": true,
+    "completion_evidence": "patient AI.isInBed must return true; released carry handle alone is insufficient"
+  },
+  "patrol": {
+    "day_hours": [
+      6,
+      23
+    ],
+    "day_native_tasks": [
+      36,
+      141
+    ],
+    "night_native_task": 51,
+    "outdoor_posts": 3,
+    "door_based_positions": true,
+    "night_posts_no_periodic_reissue": true,
+    "busy_transition": "deferred per member"
+  },
+  "custom_races": {
+    "count": 14,
+    "scope": "Existing KS NoSever races only",
+    "limb_records": [
+      "7001-KenshiShop.mod",
+      "7002-KenshiShop.mod",
+      "7003-KenshiShop.mod",
+      "7004-KenshiShop.mod"
+    ],
+    "severance": false,
+    "anatomy_changed": false,
+    "vanilla_races_changed": false,
+    "prosthetics_seller": "Uses vanilla skeleton 17946-stick_people.mod, not a custom NoSever race"
+  },
+  "validation": {
+    "lua_files": 112,
+    "api_scenarios": 91,
+    "controller_restoration": true,
+    "old_records_unchanged": 218,
+    "old_records_amended": [
+      "7604-KenshiShop.mod"
+    ],
+    "new_records": 8,
+    "native_dll_reused_sha256": "6aef1e7872ffa7c19ccb98f46e16e6a937d2f9da5082a2e3596702a9480b3412"
+  },
+  "limits": [
+    "In-game bed placement and outdoor patrol pathing require verification.",
+    "Native bed availability/ownership/path constraints still apply.",
+    "No manual restoration of already missing limbs is performed."
+  ]
+}

@@ -78,7 +78,7 @@ local function fixture(initial)
  local b={getHandle=function()return handle('building')end,getTown=function()return service end,
  getFaction=function()return npc end,getPosition=function()return {x=0,y=0,z=0}end,isValid=function()return true end}
  state={key='building',platoon=p,building=b,cfg={role='guard',shop='weapons',count=2,faction='400-KenshiShop.mod',template='staff'}}
- function getGameWorld()return {gamedata={getData=function()return {name='KS87 Indoor guards'}end}}end
+ function getGameWorld()return {gamedata={getData=function()return {name='KS90 Indoor guards'}end}}end
  return state
 end
 test('new origin selection excludes every player outpost, ruins and hostile towns',function()
@@ -149,8 +149,8 @@ test('saved KS86 package migrates once, does not force stock and keeps original 
  assert(Work.ensure(state,ms));assert(replacements==1 and wakes==2 and not state.work.upgraded)
  assert(owns._homeTown==origin and O.handleID(activePackage.missionTown)=='service')
 end)
-test('restored KS87 package without a mission handle rebinds without replacing package',function()
- fixture(origin);bb.name='KS87 Indoor guards'
+test('restored KS90 package without a mission handle rebinds without replacing package',function()
+ fixture(origin);bb.name='KS90 Indoor guards'
  assert(Work.ensure(state,ms) and replacements==0 and Service.verify(state,bb))
 end)
 test('mission drift repairs are bounded, without changing origin or package',function()
@@ -162,7 +162,7 @@ end)
 test('later native packages and combat are not overridden by mission monitoring',function()
  fixture(origin);assert(Work.ensure(state,ms));local count=replacements
  bb.name='Native contracted job';assert(not Work.ensure(state,ms));assert(replacements==count)
- bb.name='KS87 Indoor guards';assert(Work.ensure(state,ms) and state.work.missionDrifts==nil)
+ bb.name='KS90 Indoor guards';assert(Work.ensure(state,ms) and state.work.missionDrifts==nil)
  activePackage.missionTown=handle('origin');busy=true
  assert(not Work.ensure(state,ms) and state.work.tries==0)
  busy=false;assert(Work.ensure(state,ms) and replacements==count)

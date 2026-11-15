@@ -7,6 +7,10 @@ local Log=require('Diagnostics')
 local Native=require('Core.NPC.NativeBridge')
 local M={}
 local buildings={}
+local function postKey(index,outside)
+ if type(outside)=='number' then return 'patrol_street_'..outside end
+ return outside and 'street' or index
+end
 local function field(o,k)local ok,v=pcall(function()return o[k]end);if ok then return v end end
 -- SDK extension wraps the existing factory result as its RootObject base. NPCs
 -- remain in their platoon containers even while inside; their container must
@@ -97,7 +101,7 @@ end
 -- Creation is independent of NPC location and does not issue movement orders.
 function M.target(s,b,ms,index,outside)
  local yes,why=M.ensure(s,b);if not yes then return nil,why end
- local r=buildings[s.key];local key=outside and 'street' or index
+ local r=buildings[s.key];local key=postKey(index,outside)
  r.targets=r.targets or {};r.targetTries=r.targetTries or {}
  local saved=r.targets[key] or (not outside and r.created[index])
  if type(saved)=='table' then
@@ -117,6 +121,16 @@ function M.target(s,b,ms,index,outside)
   if outside then
    local door=assert(Live.call(b,'getDoor'),'BUILDING_DOOR_UNAVAILABLE')
    local wp=assert(Live.call(door,'getDoorPosOutside_extraFarOut',2),'DOOR_OUTSIDE_UNAVAILABLE')
+   if type(outside)=='number' then
+    assert(outside>=1 and outside<=3 and outside%1==0,'PATROL_SLOT_INVALID')
+    local near=assert(Live.call(door,'getDoorPosOutside_extraFarOut',1),'DOOR_APPROACH_UNAVAILABLE')
+    local dx,dz=wp.x-near.x,wp.z-near.z
+    local length=math.sqrt(dx*dx+dz*dz);assert(length>0.001,'DOOR_APPROACH_DIRECTION_INVALID')
+    -- A row beside the door's actual outward approach. Spacing derives from
+    -- the native door offset, so it follows scale and the building rotation.
+    local offset=(outside-2)*length
+    wp={x=wp.x-dz/length*offset,y=wp.y,z=wp.z+dx/length*offset}
+   end
    local origin=b:getPosition();local q=b:getOrientation()
    local n=q.w*q.w+q.x*q.x+q.y*q.y+q.z*q.z;assert(n>0,'INVALID_ROTATION')
    local v={w=0,x=wp.x-origin.x,y=wp.y-origin.y,z=wp.z-origin.z}
@@ -138,12 +152,12 @@ function M.target(s,b,ms,index,outside)
  return result
 end
 function M.available(s,index,outside,member)
- local r=buildings[s.key];local claim=r and r.claims and r.claims[outside and 'street' or index]
+ local r=buildings[s.key];local claim=r and r.claims and r.claims[postKey(index,outside)]
  return not claim or claim.member==member or Live.call(claim.char,'isDead')==true
 end
 function M.claim(s,index,outside,m)
  local r=assert(buildings[s.key]);r.claims=r.claims or {}
  for k,v in pairs(r.claims)do if v.member==m.key then r.claims[k]=nil end end
- if index then r.claims[outside and 'street' or index]={member=m.key,char=m.char}end
+ if index then r.claims[postKey(index,outside)]={member=m.key,char=m.char}end
 end
 return M

@@ -23,7 +23,7 @@ function M.safe(c)
  local o=Live.call(c,'getOrdersReciever')
  if Live.call(o,'hasOrders')~=false then return false,'NATIVE_ORDERS_OR_UNKNOWN'end
  local active=Live.call(Live.call(o,'getCurrentGoal'),'key')
- if not ({[0]=true,[14]=true,[19]=true,[20]=true,[30]=true,[38]=true,[43]=true,[47]=true,[51]=true,[54]=true,[62]=true,[268]=true})[active] then
+ if not ({[0]=true,[14]=true,[19]=true,[20]=true,[30]=true,[36]=true,[38]=true,[43]=true,[47]=true,[51]=true,[54]=true,[62]=true,[141]=true,[268]=true})[active] then
   return false,'NATIVE_TASK_'..tostring(active)
  end
  return true

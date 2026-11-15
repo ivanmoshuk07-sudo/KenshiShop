@@ -22,7 +22,7 @@ end
 local function report(s,r,status,why)
  local text=status..':'..tostring(why)
  if r.message==text then return end;r.message=text
- Log.console('NPC_POST_DUTY89 shop='..s.cfg.shop..' role='..s.cfg.role..' building='..s.key
+ Log.console('NPC_POST_DUTY90 shop='..s.cfg.shop..' role='..s.cfg.role..' building='..s.key
   ..' member='..tostring(r.member)..' hour='..string.format('%.3f',s.now/60%24)
   ..' status='..status..' detail='..tostring(why))
 end
@@ -36,7 +36,7 @@ local function observe(s,r,c)
  local task=Live.call(g,'key');local floor=Live.call(c,'getFloor')
  local arrived=task==51 and ok and subject==r.node.handle:toString()
   and floor==r.node.floor and distance and distance<=1.5
- Log.console('NPC_POST_OBSERVE89 shop='..s.cfg.shop..' role='..s.cfg.role..' member='..r.member
+ Log.console('NPC_POST_OBSERVE90 shop='..s.cfg.shop..' role='..s.cfg.role..' member='..r.member
   ..' hour='..string.format('%.3f',s.now/60%24)..' active='..tostring(task)
   ..' subject_match='..tostring(ok and subject==r.node.handle:toString())
   ..' npc_floor='..tostring(floor)..' target_floor='..r.node.floor
@@ -45,11 +45,14 @@ end
 function M.tick(s,ms)
  if not s.work or not s.work.done or not s.building or type(s.now)~='number' then return end
  local role=s.cfg.role
- if role=='patrol' then return end
+ -- Patrols retain the native route in the day; only the night shift gets
+ -- personal post subjects. The leader/follower FCS goals are time-gated too.
+ if role=='patrol' and s.cfg.shop~='police' then return end
  if Live.call(s.building,'isPhysical')~=true then return end
  local day=M.day(s.now)
  if role=='trader' and (s.cfg.shop=='bar' or s.cfg.shop=='robotics') then return end
- local state=s.postDuty or {members={},floorByMember={}};s.postDuty=state
+ local state=s.postDuty or {members={},floorByMember={},patrolSlots={}};s.postDuty=state
+ state.patrolSlots=state.patrolSlots or {}
  local physical=tostring(Live.call(s.building,'getRootNode'))
  if state.physical~=physical then
   for _,r in pairs(state.members)do r.mode=nil;r.prepared=nil;r.node=nil;r.observeAt=nil;r.tries=0 end
@@ -77,6 +80,10 @@ function M.tick(s,ms)
  table.sort(ordered,function(a,b)return a.key<b.key end)
  for rank,m in ipairs(ordered)do
   local r=state.members[m.key] or {member=m.key,index=0,tries=0};state.members[m.key]=r
+  if role=='patrol' and state.patrolSlots[m.key]==nil then
+   local used={};for _,slot in pairs(state.patrolSlots)do used[slot]=true end
+   for slot=1,3 do if not used[slot] then state.patrolSlots[m.key]=slot;break end end
+  end
   observe(s,r,m.char)
   if role=='guard' and state.floorByMember[m.key]==nil then
    -- Native names persist in the save, so a surviving second-floor guard
@@ -91,16 +98,18 @@ function M.tick(s,ms)
   if due and r.tries<3 then
    local safe,why=Jobs.safe(m.char)
    if not safe then report(s,r,'DEFER',why)
-   elseif role=='trader' and day then
+   elseif (role=='trader' or role=='patrol') and day then
     local ok,err=Jobs.clear(m.char)
     if ok then
      if r.node then Nodes.claim(s,nil,false,m)end
-     r.node=nil;r.mode=mode;r.tries=0;report(s,r,'NATIVE_SHOPKEEPER','task=20')
+     r.node=nil;r.mode=mode;r.tries=0
+     report(s,r,role=='patrol' and 'NATIVE_PATROL_DAY' or 'NATIVE_SHOPKEEPER',role=='patrol' and 'leader=36 followers=141 hours=06_23' or 'task=20')
     else report(s,r,'DEFER',err)end
    else
     local list=M.candidates(s.cfg.shop,role,floor)
     local nextIndex=r.index%math.max(1,#list)+1
     local outside=role=='chief' and day
+    if role=='patrol' then outside=state.patrolSlots[m.key] end
     local index
     for offset=0,#list-1 do
      local candidate=(nextIndex+offset-1)%#list+1
