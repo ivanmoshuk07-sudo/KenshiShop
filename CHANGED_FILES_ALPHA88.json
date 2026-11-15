@@ -1,0 +1,15 @@
+{
+  ".github/workflows/release.yml": "57bb8e58f8e143203babebe3145883498b7bebc339939e0510046cf4ae44ccf0",
+  "Development/references/node_transform88.json": "f88b60f482f6a986815461be512eddda4773e2d7b3b2ac3320ae57735b9e13da",
+  "Development/tests/data88.py": "7dacbcf263bc7f60446e02296ff632f6a630b9867c3cb375cb88e883b2091af1",
+  "Development/tests/duty.lua": "6b92866f924e92e32678240f4311e894ff8fb91dfd4478442f75d97a47ddb66e",
+  "Development/tests/native88.lua": "9bc92c5f37ba804757e34252bbb0e82019423fbc310ee3c5d3e9ca67cab3afc6",
+  "Development/tests/run_lua.py": "29f9c5ecbd0a6001f5547d66fdeff60607c3a2d2d216ed8f83d04b096ce9c18d",
+  "KenshiShop/scripts/Core.lua": "a52b35eb6957f558efe7b4430ef26e85f30f2464bc8325ba1f3c15a4d4b25fd5",
+  "KenshiShop/scripts/Core/NPC/NativeNodes.lua": "ffb29351cc11ddae9ff10bf5fffe3707dc7388ec68d17df74d3625720334e4df",
+  "KenshiShop/scripts/Core/NPC/PostAudit.lua": "758e0f4e2035a765b2bb510e772971410ea92e8d89cf2a01481f87782450bec1",
+  "KenshiShop/scripts/KenshiLuaConsole.lua": "26019373e5bb7209a04b456c6c133f7df9b7120e39d7d06e0652637227f1de9e",
+  "README.md": "155903465294fb09f6cf61d58091567d5d7ab8847fdb2d07e734f86cdb8d8e01",
+  "README_ALPHA88_RU.md": "b8a52066d93b0fa0fa5cc721603136a1a268e88840507e78d95d9e32dd881e38",
+  "RELEASE_NOTES.md": "95248023ebfd3a8308c3e95bc693fde82d3e14f3d4f2cfb31aba315984ebc57e"
+}

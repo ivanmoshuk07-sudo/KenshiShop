@@ -2,6 +2,7 @@
 local Live=require('Core.NPC.LiveState')
 local O=require('Core.NPC.OriginTown')
 local Log=require('Diagnostics')
+local Nodes=require('Core.NPC.NativeNodes')
 local M={}
 local function task(c)
  return Live.call(Live.call(Live.call(c,'getOrdersReciever'),'getCurrentGoal'),'key')
@@ -32,6 +33,21 @@ function M.probe(s,c,key)
  if not ok then row.result='FINDER_ERROR';row.error=tostring(score);return row end
  row.score=score;row.post=O.handleID(h)
  row.result=row.post and 'POST_FOUND' or 'NO_SELECTABLE_POST'
+ if row.post then
+  local root=Live.call(h,'getRootObjectBase')
+  local pos=Live.call(root,'getPosition')
+  if not pos or type(pos.x)~='number' or type(pos.y)~='number' or type(pos.z)~='number' then
+   row.geometry='POSITION_UNAVAILABLE'
+  elseif not s.building or type(Nodes.nearest)~='function' then row.geometry='LAYOUT_UNAVAILABLE'
+  else
+   local yes,entry,error=pcall(Nodes.nearest,s,s.building,pos)
+   row.distance=yes and error or nil
+   row.geometry=yes and entry and (error<=0.75 and 'MATCH' or 'OUTSIDE_LAYOUT') or 'CHECK_UNAVAILABLE'
+   row.floor=Live.call(root,'getFloor');row.layoutFloor=yes and entry and entry.floor or nil
+   if row.floor~=nil and row.layoutFloor~=nil then row.floorMatch=row.floor==row.layoutFloor end
+   row.position=string.format('%.2f,%.2f,%.2f',pos.x,pos.y,pos.z)
+  end
+ end
  return row
 end
 function M.observe(s,ms)
@@ -44,10 +60,13 @@ function M.observe(s,ms)
   local ok,row=pcall(M.probe,s,m.char,m.key)
   if not ok then row={result='AUDIT_ERROR',error=tostring(row)} end
   a.rows[m.key]=row
-  Log.console('NPC_WORK_AUDIT87 shop='..s.cfg.shop..' role='..s.cfg.role..' member='..m.key
+  Log.console('NPC_WORK_AUDIT88 shop='..s.cfg.shop..' role='..s.cfg.role..' member='..m.key
    ..' observation='..a.count..'/3 expected='..tostring(row.expected)..' active='..tostring(row.active)
    ..' result='..row.result..' finder='..tostring(row.finder)..' score='..tostring(row.score)
-   ..' post='..tostring(row.post)..' home='..tostring(row.home)..' error='..tostring(row.error or 'NONE'))
+   ..' post='..tostring(row.post)..' home='..tostring(row.home)
+   ..' geometry='..tostring(row.geometry)..' error_distance='..tostring(row.distance)
+   ..' position='..tostring(row.position)..' floor='..tostring(row.floor)..' layout_floor='..tostring(row.layoutFloor)
+   ..' floor_match='..tostring(row.floorMatch)..' error='..tostring(row.error or 'NONE'))
  end
 end
 return M

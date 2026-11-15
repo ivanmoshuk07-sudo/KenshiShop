@@ -2,7 +2,7 @@
 -- persistent stock grades, safe migration, and no physical furniture changes.
 local root=assert(arg[1]);package.path=root..'/?.lua;'..root..'/?/init.lua;'..package.path
 package.loaded.Diagnostics={console=function()end,error=function()end}
-local Nodes=require('Core.NPC.NativeNodes');local Duty=require('Core.NPC.Duty');local Catalog=require('Core.NPC.Catalog')
+local Transform=require('Transform');local Nodes=require('Core.NPC.NativeNodes');local Duty=require('Core.NPC.Duty');local Catalog=require('Core.NPC.Catalog')
 local passed=0
 local function test(name,fn)fn();passed=passed+1;print('PASS '..name)end
 local world
@@ -18,7 +18,10 @@ local function fixture(shop)
  function world.theFactory:createLocationNode(auto,data,pos,home,owner,rot,save,id)
   assert(auto and home==b and owner==faction and save==nil and rot.w and pos.x)
   assert(data.stringID=='1180-gamedata.base' or data.stringID=='1186-gamedata.base' or data.stringID=='1184-gamedata.base')
-  assert(not ids[id],'duplicate node ID');ids[id]={position=pos};calls.created=calls.created+1;return {}
+  assert(not ids[id],'duplicate node ID')
+  -- Emulate only the verified native coordinate contract, not the NPC AI.
+  local actual=Transform.world(b:getPosition(),b:getOrientation(),1,{p={pos.x,pos.y,pos.z},q={rot.w,rot.x,rot.y,rot.z}})
+  ids[id]={position=actual};calls.created=calls.created+1;return {}
  end
  function world.theFactory:createBuilding()calls.physical=calls.physical+1;error('furniture mutation')end
  return {cfg={shop=shop or 'weapons',role='trader'},key='home',building=b},b,calls,ids
@@ -29,7 +32,7 @@ test('trader and separate guard share exactly one native node set, zero furnitur
  assert(calls.created==15 and calls.attached==0 and calls.physical==0)
  for _,v in pairs(ids)do assert(not v.attached)end
 end)
-test('node positions transform existing posts into world space without moving furniture',function()
+test('native factory receives local offsets and produces world positions without moving furniture',function()
  local s,b,_,ids=fixture();assert(Nodes.ensure(s,b));local p
  for _,v in pairs(ids)do if math.abs(v.position.x-63.1220436)<0.0001 then p=v.position end end
  assert(p)

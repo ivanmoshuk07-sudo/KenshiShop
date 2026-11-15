@@ -1,0 +1,129 @@
+{
+  "scope": "Static native inspection and regression tests; no game executed.",
+  "alpha87_source_commit": "4ddb941528ccab949762515506a2ff222867ce4d",
+  "native_executable": {
+    "sha256": "a596ab4e407c67b58599c54ffb32dc1bf2b64510cdebd3fa9359ef05a576aeb1",
+    "embedded_version": "1.0.68 Steam",
+    "log_version": "1.0.65 Steam",
+    "version_limit": "Supplied EXE differs from reported runtime version; no hardcoded addresses are used by mod."
+  },
+  "call_chain": {
+    "factory_RVA": "0x57c860",
+    "node_position_wrapper_RVA": "0x3892e0",
+    "node_transform_RVA": "0x388e10"
+  },
+  "native_parent_transform_evidence": [
+    {
+      "address": "0x140388e48",
+      "operation": "Assign input position to LocationNode.pos (+0x48)."
+    },
+    {
+      "address": "0x140388e99",
+      "operation": "Parent virtual getPosition stores the building position in a temporary."
+    },
+    {
+      "address": "0x140388eaa",
+      "operation": "Parent virtual getOrientation."
+    },
+    {
+      "address": "0x140388ebe",
+      "operation": "Ogre Quaternion operator*: parent rotation * input local quaternion."
+    },
+    {
+      "address": "0x140388ee1",
+      "operation": "Ogre Quaternion operator*(Vector3): parent rotation * input local position."
+    },
+    {
+      "address": "0x140388efd",
+      "operation": "Ogre Vector3 operator+=: add parent position to rotated input position."
+    }
+  ],
+  "verified_import_names": {
+    "0x142249010": "??DQuaternion@Ogre@@QEBA?AV01@AEBV01@@Z",
+    "0x142247e38": "??DQuaternion@Ogre@@QEBA?AVVector3@1@AEBV21@@Z",
+    "0x1422481a8": "??YVector3@Ogre@@QEAAAEAV01@AEBV01@@Z"
+  },
+  "alpha87_error": "Lua Transform.world supplied B + R*(S*p) and R*q; the native parented node factory then applied B + R*inputPosition and R*inputRotation again.",
+  "alpha88_input": {
+    "position": "S*p (local offset, scaled once)",
+    "rotation": "q (source local quaternion)",
+    "parent": "the assigned building"
+  },
+  "alpha88_native_result": {
+    "position": "B + R*(S*p)",
+    "rotation": "R*q"
+  },
+  "regression_example": {
+    "building": [
+      6500,
+      1400,
+      77500
+    ],
+    "note": "Synthetic mathematical fixture, not a measurement of an in-game runtime node. Old input yields more than 70000 units of layout error in the test."
+  },
+  "alpha87_log_observations": {
+    "audit_count": 109,
+    "counts": [
+      {
+        "role": "chief",
+        "active": "0",
+        "result": "POST_FOUND",
+        "count": 7
+      },
+      {
+        "role": "patrol",
+        "active": "0",
+        "result": "NATIVE_PATROL_OR_FOLLOW",
+        "count": 9
+      },
+      {
+        "role": "patrol",
+        "active": "36",
+        "result": "NATIVE_PATROL_OR_FOLLOW",
+        "count": 6
+      },
+      {
+        "role": "patrol",
+        "active": "141",
+        "result": "NATIVE_PATROL_OR_FOLLOW",
+        "count": 12
+      },
+      {
+        "role": "trader",
+        "active": "0",
+        "result": "POST_FOUND",
+        "count": 31
+      },
+      {
+        "role": "guard",
+        "active": "0",
+        "result": "POST_FOUND",
+        "count": 42
+      },
+      {
+        "role": "chief",
+        "active": "38",
+        "result": "POST_FOUND",
+        "count": 2
+      }
+    ],
+    "no_selectable_post_reports": 0
+  },
+  "save_inspection": {
+    "zone": "zone.33.48.zone",
+    "saved_instances_using_1180_1184_1186_templates": 0,
+    "limit": "One shop-containing zone inspected. No claim that every kind of location node in all game saves is never serialized."
+  },
+  "unchanged": [
+    ".mod bytes (219 records)",
+    "Patrol package 8704 and Follow leader 141",
+    "RoleAI/NativeActivation/Transport/HomeAssignment/OriginTown/ServiceTown/Duty",
+    "Physical furniture, stock, grades, compatibility",
+    "All original PostData positions/quaternions/types/floors"
+  ],
+  "remaining_limitations": [
+    "Factory nil GameSaveState still initializes floor 0; upper-floor assignment not repaired.",
+    "Correct node geometry does not prove a running native work task. In-game verification required.",
+    "Install after closing the game; do not keep live objects created with old coordinate semantics."
+  ]
+}

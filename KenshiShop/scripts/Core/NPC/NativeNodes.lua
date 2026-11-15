@@ -6,6 +6,28 @@ local Posts=require('Core.NPC.PostData')
 local Log=require('Diagnostics')
 local M={}
 local buildings={}
+-- With a parent building, the native factory applies parent rotation and
+-- translation itself. Scale the LOCAL offset, but do not convert it to world.
+function M.localPose(b,p)
+ local scale=b:getScale()
+ assert(type(scale)=='number' and scale==scale and scale>0 and scale<math.huge,'NODE_SCALE_INVALID')
+ local q=p.q
+ return {x=p.p[1]*scale,y=p.p[2]*scale,z=p.p[3]*scale},{w=q[1],x=q[2],y=q[3],z=q[4]}
+end
+-- World coordinates are calculated here only for read-back diagnostics.
+function M.nearest(s,b,pos)
+ local best,distance
+ for _,p in ipairs(Posts[s.cfg.shop] or {})do
+  local allowed=s.cfg.role=='trader' and p.kind==0
+    or s.cfg.role~='trader' and (p.kind==1 or p.kind==2)
+  if allowed then
+   local expected=Transform.world(b:getPosition(),b:getOrientation(),b:getScale(),p)
+   local d=Transform.error(expected,pos)
+   if not distance or d<distance then best,distance=p,d end
+  end
+ end
+ return best,distance
+end
 function M.resetSession()buildings={}end
 function M.ensure(s,b)
  local world=getGameWorld();local gm=world and world.gamedata
@@ -30,7 +52,7 @@ function M.ensure(s,b)
  local ok,err=pcall(function()
   for _,p in ipairs(pending)do
    if not r.created[p.index]then
-    local pos,rot=Transform.world(b:getPosition(),b:getOrientation(),b:getScale(),p.entry)
+    local pos,rot=M.localPose(b,p.entry)
     local node=world.theFactory:createLocationNode(true,p.data,pos,b,b:getFaction(),rot,nil,p.id)
     assert(node and not tostring(node):find('(nil)',1,true),'LOCATION_NODE_CREATE_FAILED')
     -- Keep the opaque pointer opaque; registration belongs to the factory.
@@ -42,7 +64,7 @@ function M.ensure(s,b)
  end)
  if not ok then r.tries=r.tries+1;return false,'NATIVE_NODE_SETUP '..tostring(err)end
  r.done=true
- Log.console('NPC_NATIVE_NODES87 shop='..s.cfg.shop..' building='..s.key..' count='..#pending..' factory=createLocationNode furniture_changes=0 registration=factory_auto selection=SEE_WORK_AUDIT')
+ Log.console('NPC_NATIVE_NODES88 shop='..s.cfg.shop..' building='..s.key..' count='..#pending..' factory=createLocationNode furniture_changes=0 registration=factory_auto input=scaled_local selection=SEE_WORK_AUDIT')
  return true
 end
 return M
