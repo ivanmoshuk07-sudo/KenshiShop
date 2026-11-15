@@ -6,7 +6,7 @@ struct lua_State {};
 static lua_CFunction createNode=NULL,protectLimbs=NULL,unprotectLimbs=NULL;
 static std::string raceId="7117-KenshiShop.mod";
 static bool lastBoolean=false;
-static void boolean(lua_State*,int value){lastBoolean=value!=0;}
+static void pushTestBoolean(lua_State*,int value){lastBoolean=value!=0;}
 static const char* text(lua_State*,int,size_t* length){*length=raceId.size();return raceId.c_str();}
 static bool marshalled=false;
 static int bad=0;
@@ -30,7 +30,7 @@ extern "C" __declspec(dllexport) int __cdecl KenshiLua_GetApi(unsigned int versi
  std::memset(out,0,sizeof(*out));out->abiVersion=1;out->structSize=sizeof(*out);
  out->isInitialized=initialized;out->testObject=object;out->pushObject=push;out->newTable=table;
  out->pushInteger=integer;out->setField=field;out->registerFunctions=functions;out->toNumber=number;
- out->pushBoolean=boolean;out->toLString=text;out->pushNumber=[](lua_State*,double){};out->type=type;out->pushNil=nil;out->pushString=string;return 0;
+ out->pushBoolean=pushTestBoolean;out->toLString=text;out->pushNumber=[](lua_State*,double){};out->type=type;out->pushNil=nil;out->pushString=string;return 0;
 }
 extern "C" __declspec(dllexport) int runCases(HMODULE bridge){
  typedef int(*Open)(lua_State*);

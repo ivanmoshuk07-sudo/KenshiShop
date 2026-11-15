@@ -18,13 +18,14 @@ static DestroyFn originalDestroy=NULL;
 static RaceFn originalRace=NULL;
 struct Protection {int race; unsigned long long amputations,crushes;};
 static SRWLOCK registryLock=SRWLOCK_INIT;
-static std::unordered_map<void*,Protection> registry;
+// Intentionally process-lived: native detours may still run during DLL teardown.
+static auto* const registry=new std::unordered_map<void*,Protection>;
 static bool hooksReady=false;
 static bool destroyReady=false,raceReady=false,crushReady=false,amputateReady=false;
 static bool block(void* med,int limb,bool crush) {
  if(limb<0||limb>3)return false;
  AcquireSRWLockExclusive(&registryLock);
- auto found=registry.find(med);bool protectedActor=found!=registry.end();
+ auto found=registry->find(med);bool protectedActor=found!=registry->end();
  if(protectedActor) {
   if(crush)++found->second.crushes;else ++found->second.amputations;
  }
@@ -32,7 +33,7 @@ static bool block(void* med,int limb,bool crush) {
  return protectedActor;
 }
 static void forget(void* med) {
- AcquireSRWLockExclusive(&registryLock);registry.erase(med);ReleaseSRWLockExclusive(&registryLock);
+ AcquireSRWLockExclusive(&registryLock);registry->erase(med);ReleaseSRWLockExclusive(&registryLock);
 }
 static void __fastcall onAmputate(void* med,int limb,bool create,const Vec3& force) {
  if(!block(med,limb,false))originalAmputate(med,limb,create,force);
@@ -89,8 +90,8 @@ static int protect(lua_State* L) {
  Protection result;
  try {
   AcquireSRWLockExclusive(&registryLock);
-  auto found=registry.find(med);
-  if(found==registry.end())found=registry.emplace(med,Protection{race,0,0}).first;
+  auto found=registry->find(med);
+  if(found==registry->end())found=registry->emplace(med,Protection{race,0,0}).first;
   else if(found->second.race!=race)found->second=Protection{race,0,0};
   result=found->second;
   ReleaseSRWLockExclusive(&registryLock);
