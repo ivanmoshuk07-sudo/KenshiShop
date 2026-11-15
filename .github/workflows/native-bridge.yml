@@ -1,7 +1,7 @@
 name: Build native node bridge
 on:
   push:
-    branches: [alpha89-native-posts]
+    branches: [alpha91-limb-protection]
     paths: ['Development/NativeBridge/**', '.github/workflows/native-bridge.yml']
   workflow_dispatch:
 permissions:
@@ -30,7 +30,7 @@ jobs:
           cd native-probe
           LoadProbe.exe
       - name: Record the compiled DLL on the development branch
-        if: github.ref == 'refs/heads/alpha89-native-posts'
+        if: github.ref == 'refs/heads/alpha91-limb-protection'
         shell: pwsh
         run: |
           git config user.name 'github-actions[bot]'
@@ -39,7 +39,7 @@ jobs:
           git diff --cached --quiet
           if ($LASTEXITCODE -ne 0) {
             git commit -m "Build and ABI-check native bridge from $env:GITHUB_SHA"
-            git push origin HEAD:alpha89-native-posts
+            git push origin HEAD:alpha91-limb-protection
           }
       - uses: actions/upload-artifact@v4
         with:

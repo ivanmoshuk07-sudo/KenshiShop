@@ -1,7 +1,8 @@
-// GPL-3.0: native marshalling for the existing KenshiLib node factory only.
-// No hooks, offsets, memory writes, movement orders or AI implementation.
+// GPL-3.0: SDK node marshalling and scoped native limb-loss prevention.
+// No game offsets, health writes, movement orders or AI implementation.
 #include "vendor/KenshiLua.h"
 #include <cmath>
+#include "LimbProtection.h"
 
 namespace {
 struct Position { float x,y,z; };
@@ -45,12 +46,13 @@ int create(lua_State* L) {
   return 1;
  } catch(...) {return failure(L,"NATIVE_NODE_FACTORY_EXCEPTION");}
 }
-const KenshiLua::Reg methods[]={{"createNode",create},{NULL,NULL}};
+const KenshiLua::Reg methods[]={{"createNode",create},{"protectLimbs",KSNoSever::protect},{"unprotectLimbs",KSNoSever::unprotect},{NULL,NULL}};
 }
 extern "C" __declspec(dllexport) int luaopen_KenshiShopNative(lua_State* L) {
  if(!KenshiLua::IsAvailable())return 0;
  KenshiLua::NewTable(L);KenshiLua::RegisterFunctions(L,methods);
  KenshiLua::Push(L,1);KenshiLua::SetField(L,-2,"abi");
- KenshiLua::LogInfo("[KenshiShopNative] node marshalling ready; no AI hooks");
+ KenshiLua::Push(L,1);KenshiLua::SetField(L,-2,"limbProtectionABI");
+ KenshiLua::LogInfo("[KenshiShopNative] node marshalling ready; limb protection API available; no AI hooks");
  return 1;
 }
