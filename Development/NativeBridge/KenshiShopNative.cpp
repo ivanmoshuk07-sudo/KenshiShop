@@ -32,13 +32,14 @@ int create(lua_State* L) {
  if(!fn)return failure(L,"KENSHILIB_NODE_FACTORY_EXPORT_UNAVAILABLE");
  try {
   // NODE_SHOPKEEPER / NODE_GENERAL / NODE_GUARD_POST share a RootObjectBase
-  // prefix. SDK pushObject performs the SAME non-owning wrapping as the
+  // prefix (RTTI in the supplied EXE confirms both base offsets are zero).
+  // SDK pushObject performs the same non-owning wrapping as the
   // standard RootObjectFactory.create binding. The opaque pointer stays in C++.
   Position p={v[0],v[1],v[2]};Rotation q={v[3],v[4],v[5],v[6]};
   const std::string unusedId;
   void* node=fn(factory,true,data,p,building,faction,q,NULL,unusedId);
   if(!node)return failure(L,"NATIVE_NODE_CREATION_FAILED");
-  if(KenshiLua::PushObject(L,node,"KenshiLua.RootObjectBase")!=KenshiLua::STATUS_OK)
+  if(KenshiLua::PushObject(L,node,"KenshiLua.RootObject")!=KenshiLua::STATUS_OK)
    return failure(L,"NATIVE_NODE_MARSHAL_FAILED");
   return 1;
  } catch(...) {return failure(L,"NATIVE_NODE_FACTORY_EXCEPTION");}

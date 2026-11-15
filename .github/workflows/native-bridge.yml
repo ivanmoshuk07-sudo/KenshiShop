@@ -16,7 +16,9 @@ jobs:
           arch: x64
       - name: Compile x64 bridge with the Windows SDK
         shell: cmd
-        run: cl /nologo /LD /MD /EHsc /std:c++17 /O2 /W4 /WX /DNDEBUG Development\NativeBridge\KenshiShopNative.cpp /link /OUT:KenshiShop\native\KenshiShopNative.dll
+        run: |
+          if not exist KenshiShop\native mkdir KenshiShop\native
+          cl /nologo /LD /MD /EHsc /std:c++17 /O2 /W4 /WX /DNDEBUG Development\NativeBridge\KenshiShopNative.cpp /link /OUT:KenshiShop\native\KenshiShopNative.dll
       - uses: actions/upload-artifact@v4
         with:
           name: KenshiShopNative-x64
