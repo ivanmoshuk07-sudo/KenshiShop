@@ -13,7 +13,7 @@ local function hand(id,root)
 end
 local s,ms,b,calls,world,inside,active,blocked,newPriority,serial
 local function fixture(role,shop,n)
- Nodes.resetSession();logs={};calls={jobs=0,rethinks=0,typed=0,opaque=0,public=0};inside=true;active=268;blocked=false;newPriority=2;serial=0
+ Nodes.resetSession();logs={};calls={jobs=0,rethinks=0,typed=0,opaque=0,public=0,inserts=0};inside=true;active=268;blocked=false;newPriority=2;serial=0
  local container={selfType=1};local origin={x=100,y=10,z=200};local q={w=math.sqrt(0.5),x=0,y=math.sqrt(0.5),z=0}
  b={getRootNode=function()return 'physical-1'end,isPhysical=function()return true end,getScale=function()return 0.25 end,
  getPosition=function()return origin end,getOrientation=function()return q end,getFaction=function()return 'npc-faction'end,
@@ -42,7 +42,7 @@ local function fixture(role,shop,n)
   function order:removeGoal(key)
    for _,bucket in ipairs(self.goals)do for j=#bucket,1,-1 do if bucket[j]:key()==key then table.remove(bucket,j)end end end
   end
-  function order:addGoal(g)table.insert(goals[g.priority+1],g)end
+  function order:addGoal(g)calls.inserts=calls.inserts+1;table.insert(goals[g.priority+1],g)end
   local npcName='guard-'..i
   local c={getName=function()return npcName end,setName=function(_,name)npcName=name end,getHandle=function()return hand('npc-'..i)end,getOrdersReciever=function()return order end,
    getCarryingObject=function()return hand(nil)end,getAI=function()return {resultsCache={resetAllCaches=function()end}}end,
@@ -74,7 +74,7 @@ end)
 test('two guards bind real node subjects with distinct floors; zero repeated jobs between rotations',function()
  fixture();Duty.tick(s,ms)
  assert(calls.jobs==2 and calls.rethinks==2)
- for i,m in ipairs(ms)do local _,g,bucket=Jobs.find(m.char);assert(bucket==2 and g.subject:getRootObject():getFloor()==i-1)end
+ for i,m in ipairs(ms)do local _,g,bucket=Jobs.find(m.char);assert(bucket==1 and g.priority==1 and g.subject:getRootObject():getFloor()==i-1)end
  for i=1,100 do s.now=720+i*0.1;Duty.tick(s,ms)end
  assert(calls.jobs==2 and calls.rethinks==2)
 end)
@@ -109,15 +109,78 @@ end)
 test('NPC platoon containers are never confused with interiors; outside assignment needs no move order',function()
  fixture();inside=false;Duty.tick(s,ms);assert(calls.jobs==2 and calls.typed==#Posts.weapons and calls.opaque==0)
 end)
-test('new goals are placed in the actual nonurgent bucket, leaving urgent native care intact',function()
+test('new work goals use priority one, leaving rescue and urgent native care intact',function()
  fixture();newPriority=3
  local o=ms[1].char:getOrdersReciever();local care={key=function()return 58 end,priority=3};table.insert(o.goals[4],care)
+ local rescue={key=function()return 106 end,priority=2};table.insert(o.goals[3],rescue)
  Duty.tick(s,ms);local _,g,bucket=Jobs.find(ms[1].char)
- assert(g and bucket==2 and g.priority==2 and o.goals[4][1]==care)
+ assert(g and bucket==1 and g.priority==1 and o.goals[4][1]==care and o.goals[3][1]==rescue)
+end)
+test('saved KS posts migrate from priority two once without allocating replacement tasks',function()
+ fixture();Duty.tick(s,ms)
+ local c=ms[1].char;local o,g,bucket,tasks,slot=Jobs.find(c)
+ local subject=g.subject
+ tasks:removeAt(slot);g.priority=2;o:addGoal(g)
+ local before=calls.inserts;local node=s.postDuty.members[ms[1].key].node
+ assert(Jobs.assign(c,node))
+ local _,after,priority=Jobs.find(c)
+ assert(after==g and priority==1 and g.priority==1 and g.subject==subject)
+ assert(calls.inserts==before+1 and calls.jobs==2)
+ assert(Jobs.assign(c,node))
+ assert(calls.inserts==before+1 and calls.jobs==2)
+end)
+test('saved post migration defers for combat and care without touching the task',function()
+ fixture();Duty.tick(s,ms)
+ local c=ms[1].char;local o,g,_,tasks,slot=Jobs.find(c)
+ tasks:removeAt(slot);g.priority=2;o:addGoal(g)
+ local before=calls.inserts;local node=s.postDuty.members[ms[1].key].node
+ blocked=true;assert(not Jobs.assign(c,node));blocked=false
+ active=58;assert(not Jobs.assign(c,node))
+ assert(g.priority==2 and calls.inserts==before)
+ active=268;assert(Jobs.assign(c,node))
+ assert(g.priority==1 and calls.inserts==before+1)
+end)
+test('missing reinsert API preserves a saved KS task rather than deleting it',function()
+ fixture();Duty.tick(s,ms)
+ local c=ms[1].char;local o,g,_,tasks,slot=Jobs.find(c)
+ tasks:removeAt(slot);g.priority=2;o:addGoal(g)
+ o.addGoal=nil
+ assert(not Jobs.assign(c,s.postDuty.members[ms[1].key].node))
+ local _,same,bucket=Jobs.find(c)
+ assert(same==g and bucket==2 and g.priority==2)
+end)
+test('failed priority-one insertion restores the saved post and stops after bounded retries',function()
+ fixture();Duty.tick(s,ms)
+ local c=ms[1].char;local o,g,_,tasks,slot=Jobs.find(c)
+ tasks:removeAt(slot);g.priority=2;o:addGoal(g)
+ local subject=g.subject;local nativeAdd=o.addGoal;local rejected,restored=0,0
+ o.addGoal=function(self,task)
+  if task.priority==1 then rejected=rejected+1;error('priority one unavailable')end
+  restored=restored+1;return nativeAdd(self,task)
+ end
+ s.postDuty=nil
+ for i=1,20 do Duty.tick(s,ms)end
+ local _,same,bucket=Jobs.find(c)
+ assert(rejected==3 and restored==3 and calls.jobs==2)
+ assert(same==g and bucket==2 and g.priority==2 and g.subject==subject)
+ assert(#o.goals[3]==1 and #o.goals[2]==0 and s.postDuty.members[ms[1].key].tries==3)
 end)
 test('foreign native goal 51 is preserved instead of claimed by the mod',function()
  fixture();local o=ms[1].char:getOrdersReciever();local foreign={key=function()return 51 end,weight=1,priority=2};table.insert(o.goals[3],foreign)
  Duty.tick(s,ms);assert(o.goals[3][1]==foreign and calls.jobs==1)
+end)
+test('foreign same-key posts prevent migration and clearing regardless of encounter order',function()
+ for _,foreignFirst in ipairs({false,true})do
+  fixture();Duty.tick(s,ms)
+  local c=ms[1].char;local o,g,_,tasks,slot=Jobs.find(c)
+  tasks:removeAt(slot);g.priority=2;o:addGoal(g)
+  local foreign={key=function()return 51 end,weight=1,priority=2}
+  table.insert(o.goals[3],foreignFirst and 1 or #o.goals[3]+1,foreign)
+  local before=calls.inserts
+  assert(not Jobs.assign(c,s.postDuty.members[ms[1].key].node))
+  assert(not Jobs.clear(c))
+  assert(g.priority==2 and foreign.priority==2 and #o.goals[3]==2 and calls.inserts==before)
+ end
 end)
 test('typed API failures are bounded and keep original native posts available',function()
  fixture();local attempts=0;world.theFactory.createBound=function()attempts=attempts+1;error('unsupported')end

@@ -11,18 +11,18 @@ local M={}
 function M.isWorkingPackage(cfg,name)
  local _,label=M.package(cfg)
  if not label then return false end
- for _,version in ipairs({'KS90','KS87','KS86','KS85','KS84','KS83','KS82'})do
-  if name==label:gsub('KS90',version)then return true end
+ for _,version in ipairs({'KSB2','KS90','KS87','KS86','KS85','KS84','KS83','KS82'})do
+  if name==label:gsub('KSB2',version)then return true end
  end
  return name==({trader=(cfg.shop=='bar' or cfg.shop=='robotics') and 'KS Native Trader 24h' or 'KS Native Trader 06-23',guard='KS Native Indoor guards',chief='KS Native Police chief',patrol='KS Native Town patrol'})[cfg.role]
 end
 function M.package(cfg)
  if cfg.role=='trader' then
-  if cfg.shop=='bar' or cfg.shop=='robotics' then return '9000-KenshiShop.mod','KS90 Trader 24h' end
-  return '9001-KenshiShop.mod','KS90 Trader 06-23'
- elseif cfg.role=='guard' then return '9002-KenshiShop.mod','KS90 Indoor guards'
- elseif cfg.role=='chief' then return '9003-KenshiShop.mod','KS90 Police chief'
- elseif cfg.role=='patrol' then return '9004-KenshiShop.mod','KS90 Town patrol' end
+  if cfg.shop=='bar' or cfg.shop=='robotics' then return '10000-KenshiShop.mod','KSB2 Trader 24h' end
+  return '10001-KenshiShop.mod','KSB2 Trader 06-23'
+ elseif cfg.role=='guard' then return '10002-KenshiShop.mod','KSB2 Indoor guards'
+ elseif cfg.role=='chief' then return '10003-KenshiShop.mod','KSB2 Police chief'
+ elseif cfg.role=='patrol' then return '10004-KenshiShop.mod','KSB2 Town patrol' end
 end
 local function say(s,event,why)
  Log.console('NPC_ROLE_'..event..' shop='..s.cfg.shop..' role='..s.cfg.role..' building='..s.key..' '..tostring(why or ''))
@@ -126,7 +126,7 @@ function M.ensure(s,ms)
  local awake,err=Activate.ensure(r,ms)
  if not awake then return fail(s,r,'NATIVE_ACTIVATION '..tostring(err)) end
  r.done=true;r.installed=true
- say(s,'READY','package='..id..' label='..label..' service='..tostring(Origin.id(s.building:getTown()))..' native_care=58,57,148 gameplay=UNVERIFIED')
+ say(s,'READY','package='..id..' label='..label..' service='..tostring(Origin.id(s.building:getTown()))..' urgent=3 rescue=2 work=1 gameplay=UNVERIFIED')
  return true
 end
 function M.status(s)

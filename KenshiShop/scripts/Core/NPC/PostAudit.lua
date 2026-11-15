@@ -5,11 +5,12 @@ local Log=require('Diagnostics')
 local Nodes=require('Core.NPC.NativeNodes')
 local M={}
 local function task(c)
- return Live.call(Live.call(Live.call(c,'getOrdersReciever'),'getCurrentGoal'),'key')
+ local g=Live.call(Live.call(c,'getOrdersReciever'),'getCurrentGoal')
+ return Live.call(g,'key'),O.field(g,'priority')
 end
 function M.probe(s,c,key)
- local active=task(c)
- local row={active=active,home=O.handleID(O.field(Live.call(c,'getStateBroadcast'),'homeBuilding'))}
+ local active,priority=task(c)
+ local row={active=active,priority=priority,home=O.handleID(O.field(Live.call(c,'getStateBroadcast'),'homeBuilding'))}
  if s.cfg.role=='patrol' then
   local hour=type(s.now)=='number' and s.now/60%24
   row.expected=hour and (hour<6 or hour>=23) and 51 or (key==s.work.leader and 36 or 141)
@@ -74,7 +75,7 @@ function M.observe(s,ms)
   if not ok then row={result='AUDIT_ERROR',error=tostring(row)} end
   a.rows[m.key]=row
   Log.console('NPC_WORK_AUDIT90 shop='..s.cfg.shop..' role='..s.cfg.role..' member='..m.key
-   ..' observation='..a.count..'/3 expected='..tostring(row.expected)..' active='..tostring(row.active)
+   ..' observation='..a.count..'/3 expected='..tostring(row.expected)..' active='..tostring(row.active)..' priority='..tostring(row.priority)
    ..' result='..row.result..' finder='..tostring(row.finder)..' score='..tostring(row.score)
    ..' post='..tostring(row.post)..' home='..tostring(row.home)
    ..' geometry='..tostring(row.geometry)..' error_distance='..tostring(row.distance)

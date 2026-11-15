@@ -3,18 +3,26 @@
 local Live=require('Core.NPC.LiveState')
 local M={}
 local MARK=1.089
+local PRIORITY=1
 local function field(o,k)local ok,v=pcall(function()return o[k]end);if ok then return v end end
 function M.find(c)
  local orders=Live.call(c,'getOrdersReciever');local buckets=field(orders,'goals')
  if not buckets then return orders end
+ local owned
  -- KenshiLua exposes five priority lektors, NOT a flat array of Taskers.
  for bucket=1,#buckets do
   local tasks=buckets[bucket]
   for i=1,#tasks do
    local g=tasks[i]
-   if Live.call(g,'key')==51 then return orders,g,bucket-1,tasks,i end
+   if Live.call(g,'key')==51 then
+    -- Key-based removal cannot distinguish an old KS post from a foreign
+    -- post. A foreign task always prevents us claiming or clearing this key.
+    if not M.ours(g) then return orders,g,bucket-1,tasks,i end
+    owned={g,bucket-1,tasks,i}
+   end
   end
  end
+ if owned then return orders,owned[1],owned[2],owned[3],owned[4] end
  return orders
 end
 function M.ours(g)local w=field(g,'weight');return type(w)=='number' and math.abs(w-MARK)<0.00001 end
@@ -47,23 +55,34 @@ function M.assign(c,node)
  if not o then return false,'ORDERS_UNAVAILABLE'end
  if g and not M.ours(g) then return false,'FOREIGN_POST_JOB'end
  local ok,err=pcall(function()
+  local created=false
   if not g then
    c:addGoal(51,node.base)
    o,g,bucket,tasks,slot=M.find(c)
    assert(g,'POST_JOB_NOT_REGISTERED')
-   -- Priority is represented by BOTH a field and the owning bucket. Reinsert
-   -- this newly allocated task through OrdersReceiver when necessary.
-   -- lektor.removeAt on Tasker* removes a pointer; it does not delete Tasker.
-   if bucket~=2 then
-    if type(field(tasks,'removeAt'))~='function' or type(field(o,'addGoal'))~='function' then
-     o:removeGoal(51);error('POST_JOB_REINSERT_API_UNAVAILABLE')
-    end
-    tasks:removeAt(slot);g.priority=2;o:addGoal(g)
-    o,g,bucket=M.find(c)
-   end
-   assert(bucket==2 and g.priority==2,'POST_JOB_PRIORITY_VERIFY_FAILED')
-   g.weight=MARK
+   created=true
   end
+  -- Priority is represented by BOTH a field and the owning bucket. Reinsert
+  -- new posts and saved KS posts from the previous priority through the native
+  -- receiver. removeAt on Tasker* removes a pointer; it does not delete Tasker.
+  if bucket~=PRIORITY or g.priority~=PRIORITY then
+   if type(field(tasks,'removeAt'))~='function' or type(field(o,'addGoal'))~='function' then
+    if created then o:removeGoal(51)end
+    error('POST_JOB_REINSERT_API_UNAVAILABLE')
+   end
+   local previousPriority=g.priority
+   tasks:removeAt(slot);g.priority=PRIORITY
+   local inserted,problem=pcall(o.addGoal,o,g)
+   if not inserted then
+    -- A failed upgrade must leave the previous native task available. Its
+    -- subject and other fields have not yet been changed by this assignment.
+    g.priority=previousPriority;pcall(o.addGoal,o,g)
+    error('POST_JOB_REINSERT_FAILED '..tostring(problem))
+   end
+   o,g,bucket=M.find(c)
+  end
+  assert(g and bucket==PRIORITY and g.priority==PRIORITY,'POST_JOB_PRIORITY_VERIFY_FAILED')
+  g.weight=MARK
   g.subject=node.handle;g.resetsWhenDone=true;g.startTime=0;g.endTime=24
   assert(g.subject:toString()==node.handle:toString(),'POST_SUBJECT_VERIFY_FAILED')
   wake(c,o)

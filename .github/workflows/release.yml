@@ -29,10 +29,10 @@ jobs:
           lua Development/tests/post89.lua KenshiShop/scripts
           lua Development/tests/care90.lua KenshiShop/scripts
           lua Development/tests/limbs91.lua KenshiShop/scripts
-      - name: Validate binary data and original node coordinates against alpha.90
+      - name: Validate priorities and preserved gameplay data against beta.1
         run: |
-          git show v0.3.0-alpha.90:KenshiShop/KenshiShop.mod > /tmp/kenshishop-alpha90.mod
-          python Development/tests/data91.py /tmp/kenshishop-alpha90.mod KenshiShop/KenshiShop.mod
+          git show v1.0-beta.1:KenshiShop/KenshiShop.mod > /tmp/kenshishop-beta1.mod
+          python Development/tests/data_beta2.py /tmp/kenshishop-beta1.mod KenshiShop/KenshiShop.mod
       - name: Choose the version
         id: version
         env:

@@ -75,7 +75,7 @@ end
 local a,b=member('leader'),member('mate')
 local ap={getSquadLeader=function()return a.char end,getSquadSize=function()return 2 end}
 local p={getSquadType=function()return 1 end,getFaction=function()return faction end,getActivePlatoon=function()return ap end,getOwnerships=function()return owns end}
-local gm={getData=function(_,id)return {name='KS90 Indoor guards'}end}
+local gm={getData=function(_,id)return {name='KSB2 Indoor guards'}end}
 function getGameWorld()return {gamedata=gm}end
 local function state()
  owns._homeTown=origin;currentPackage={};p.myBaseHomeTownData=nil
@@ -83,9 +83,9 @@ local function state()
  return {cfg={shop='bar',role='guard',count=2,faction='400-KenshiShop.mod'},key='home',platoon=p,building={getHandle=function()return {toString=function()return 'home'end}end,getFaction=function()return faction end,getTown=function()return town end,getPosition=function()return {x=0,y=0,z=0}end}}
 end
 test('roles choose 24h/day/guard/chief/patrol packages',function()
- for _,x in ipairs({{'bar','trader','9000'},{'robotics','trader','9000'},{'engineering','trader','9001'},
-  {'weapons','trader','9001'},{'armour','trader','9001'},{'bar','guard','9002'},
-  {'police','chief','9003'},{'police','patrol','9004'}})do
+ for _,x in ipairs({{'bar','trader','10000'},{'robotics','trader','10000'},{'engineering','trader','10001'},
+  {'weapons','trader','10001'},{'armour','trader','10001'},{'bar','guard','10002'},
+  {'police','chief','10003'},{'police','patrol','10004'}})do
   local id=Work.package({shop=x[1],role=x[2]});assert(id==x[3]..'-KenshiShop.mod')
  end
 end)
@@ -126,15 +126,35 @@ test('partial member setup retries without replacing package again',function()
  failMember=nil;assert(Work.ensure(s,{a,b}));assert(replaceCount==1 and setupCount==2)
 end)
 test('saved matching package still finishes member setup',function()
- local s=state();label='KS90 Indoor guards';assert(Work.ensure(s,{a,b}));assert(replaceCount==0 and setupCount==2)
+ local s=state();label='KSB2 Indoor guards';assert(Work.ensure(s,{a,b}));assert(replaceCount==0 and setupCount==2)
 end)
-test('saved alpha.81 and alpha.82 packages are recognized, then migrated once',function()
- for _,old in ipairs({'KS Native Indoor guards','KS82 Indoor guards','KS83 Indoor guards','KS84 Indoor guards','KS85 Indoor guards','KS86 Indoor guards','KS87 Indoor guards'})do
+test('saved packages through beta.1 migrate once without restocking',function()
+ for _,old in ipairs({'KS Native Indoor guards','KS82 Indoor guards','KS83 Indoor guards','KS84 Indoor guards','KS85 Indoor guards','KS86 Indoor guards','KS87 Indoor guards','KS90 Indoor guards'})do
   local s=state();label=old
   assert(Work.isWorkingPackage(s.cfg,label));assert(Work.ensure(s,{a,b}))
-  assert(not s.work.upgraded and label=='KS90 Indoor guards' and replaceCount==1)
+  assert(not s.work.upgraded and label=='KSB2 Indoor guards' and replaceCount==1)
   assert(Work.ensure(s,{a,b}) and replaceCount==1)
  end
+end)
+test('all saved shop, chief and patrol roles adopt beta.2 exactly once after care ends',function()
+ local originalSize=ap.getSquadSize;local originalLookup=gm.getData
+ local ids={['10000-KenshiShop.mod']='KSB2 Trader 24h',['10001-KenshiShop.mod']='KSB2 Trader 06-23',
+  ['10002-KenshiShop.mod']='KSB2 Indoor guards',['10003-KenshiShop.mod']='KSB2 Police chief',['10004-KenshiShop.mod']='KSB2 Town patrol'}
+ gm.getData=function(_,id)assert(ids[id]);return {name=ids[id]}end
+ for _,cfg in ipairs({{'bar','trader',1,'Trader 24h'},{'robotics','trader',1,'Trader 24h'},
+  {'weapons','trader',1,'Trader 06-23'},{'armour','trader',1,'Trader 06-23'},{'engineering','trader',1,'Trader 06-23'},
+  {'bar','guard',2,'Indoor guards'},{'weapons','guard',2,'Indoor guards'},{'armour','guard',2,'Indoor guards'},
+  {'engineering','guard',2,'Indoor guards'},{'police','chief',1,'Police chief'},{'police','patrol',3,'Town patrol'}})do
+  local s=state();s.cfg.shop=cfg[1];s.cfg.role=cfg[2];s.cfg.count=cfg[3]
+  local members={a,b,member('third')};for i=3,cfg[3]+1,-1 do members[i]=nil end
+  ap.getSquadSize=function()return cfg[3]end
+  label='KS90 '..cfg[4];assert(Work.isWorkingPackage(s.cfg,label))
+  carrying=true;assert(not Work.ensure(s,members) and replaceCount==0)
+  carrying=false;assert(Work.ensure(s,members) and replaceCount==1 and setupCount==cfg[3])
+  assert(label=='KSB2 '..cfg[4] and not s.work.upgraded)
+  assert(Work.ensure(s,members) and replaceCount==1 and setupCount==cfg[3])
+ end
+ ap.getSquadSize=originalSize;gm.getData=originalLookup
 end)
 test('setup failures stop after three attempts',function()
  local s=state();failMember='leader';for i=1,10 do assert(not Work.ensure(s,{a,b}))end

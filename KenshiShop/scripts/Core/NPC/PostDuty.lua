@@ -135,7 +135,7 @@ function M.tick(s,ms)
          r.labelled=named and Live.call(m.char,'getName')==name
         end
        end
-       report(s,r,'JOB_ASSIGNED','task=51 floor='..node.floor..' outside='..tostring(outside)
+       report(s,r,'JOB_ASSIGNED','task=51 priority=1 floor='..node.floor..' outside='..tostring(outside)
         ..' post='..node.handle:toString()..' next_game_minute='..r.nextAt)
       else r.tries=r.tries+1;report(s,r,'ASSIGN_FAILED',detail)end
      end
