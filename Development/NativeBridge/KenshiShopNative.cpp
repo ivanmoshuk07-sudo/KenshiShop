@@ -6,6 +6,7 @@
 namespace {
 struct Position { float x,y,z; };
 struct Rotation { float w,x,y,z; };
+static_assert(sizeof(std::string)==32,"MSVC x64 release string ABI");
 static_assert(sizeof(Position)==12 && sizeof(Rotation)==16,"Ogre value ABI");
 static_assert(sizeof(KenshiLua_ApiV1)==328,"KenshiLua ABI v1");
 // Exact public x64 export in the supplied KenshiLib.dll. The DLL resolves the

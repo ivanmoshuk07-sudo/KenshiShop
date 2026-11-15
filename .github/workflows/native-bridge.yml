@@ -5,7 +5,7 @@ on:
     paths: ['Development/NativeBridge/**', '.github/workflows/native-bridge.yml']
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   build:
     runs-on: windows-latest
@@ -18,7 +18,29 @@ jobs:
         shell: cmd
         run: |
           if not exist KenshiShop\native mkdir KenshiShop\native
-          cl /nologo /LD /MD /EHsc /std:c++17 /O2 /W4 /WX /DNDEBUG Development\NativeBridge\KenshiShopNative.cpp /link /OUT:KenshiShop\native\KenshiShopNative.dll
+          cl /nologo /LD /MT /EHsc /std:c++17 /O2 /W4 /WX /DNDEBUG Development\NativeBridge\KenshiShopNative.cpp /link /OUT:KenshiShop\native\KenshiShopNative.dll
+      - name: Check loading and cross-DLL factory ABI without running game code
+        shell: cmd
+        run: |
+          mkdir native-probe
+          cl /nologo /LD /MT /EHsc /std:c++17 /O2 Development\NativeBridge\tests\FactoryStub.cpp /link /OUT:native-probe\KenshiLib.dll
+          cl /nologo /LD /MT /EHsc /std:c++17 /O2 Development\NativeBridge\tests\RuntimeStub.cpp /link /OUT:native-probe\KenshiLua.dll
+          cl /nologo /MT /EHsc /std:c++17 /O2 Development\NativeBridge\tests\LoadProbe.cpp /link /OUT:native-probe\LoadProbe.exe
+          copy KenshiShop\native\KenshiShopNative.dll native-probe\KenshiShopNative.dll
+          cd native-probe
+          LoadProbe.exe
+      - name: Record the compiled DLL on the development branch
+        if: github.ref == 'refs/heads/alpha89-native-posts'
+        shell: pwsh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add KenshiShop/native/KenshiShopNative.dll
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git commit -m "Build and ABI-check native bridge from $env:GITHUB_SHA"
+            git push origin HEAD:alpha89-native-posts
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: KenshiShopNative-x64
