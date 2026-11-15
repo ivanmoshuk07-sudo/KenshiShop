@@ -330,10 +330,7 @@ function M.new(cfg,report)
    local ok,err=pcall(owns.setHomeBuilding,owns,b:getHandle(),roleSquadType(spec))
    if not ok or homeID(p)~=s.key then return false,'HOME_SET_FAIL '..tostring(err)end
   end
-  if not try(function()return owns._homeTown end) then
-   local ok,err=pcall(owns.setHomeTown,owns,town,roleSquadType(spec))
-   if not ok then return false,'HOME_TOWN_SET_FAIL '..tostring(err)end
-  end
+  -- Origin is assigned by Transport/HomeAssignment, never to the player town.
   local active=try(p.getActivePlatoon,p)
   if not active then return false,'ACTIVE_NOT_READY' end
   if not s.residentsVerified[spec.role] then
@@ -349,7 +346,6 @@ function M.new(cfg,report)
      local ok,err2=pcall(o.setHomeBuilding,o,b:getHandle(),roleSquadType(spec))
      if not ok then return false,'MEMBER_HOME_SET_FAILED '..m.key..' '..tostring(err2)end
     end
-    if not try(function()return o._homeTown end) then pcall(o.setHomeTown,o,town,roleSquadType(spec))end
    end
    s.residentsVerified[spec.role]=true
    emit(s,'MEMBERS_HOME_OK','role='..spec.role..' members='..n..'/'..n,'members_'..spec.role)

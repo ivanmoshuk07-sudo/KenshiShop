@@ -1,0 +1,21 @@
+{
+  ".github/workflows/release.yml": "d2246bfa6a478425314cc0598feb4edefd9c23cb7b24382cc3329b4f1230c7b1",
+  "Development/build_alpha86.py": "7533af4501f78bfc56d015c7af372f2c43945245533b0ca459dcf0505425d0d8",
+  "Development/references/origin_service86.json": "e01e33dede2ad9db591daf3eff2476670c5f44c4780892b2a0c6c24ca2518781",
+  "Development/tests/data86.py": "dafba372141244ff02c8fad2d8cb45a4e4881a5806fb85e4813855dc43e84e58",
+  "Development/tests/run_lua.py": "67a52a12687f3530039c53ada612ddfabc424f1168a5b8c425c5bd65fc9dfe4f",
+  "Development/tests/runtime.lua": "89ca3e1feb296964b86f2fa96286085741bc73803f81dcc9a0c093444720f8d6",
+  "Development/tests/service86.lua": "679eed1fa900383c12215faca721b9c5e1f5ba8150cb5302ec33ac8c28c2c17a",
+  "KenshiShop/KenshiShop.mod": "23ce213066cb0790bb010500abb5ecd14bf657b73768740627b221f79bd9a07c",
+  "KenshiShop/scripts/Core.lua": "7d295b52d5968ad323abf0106a7a35a0b03600dc48c0537b63e116fa08dbc726",
+  "KenshiShop/scripts/Core/NPC/HomeAssignment.lua": "75f70fc6b8bada060d0a1a2e3c3786aa6b6386ef936c8c2f58ae5794356e13a3",
+  "KenshiShop/scripts/Core/NPC/OriginTown.lua": "bffd5d5137ef2d3199a55e14973789b6ff80acb7133f4828ce91276687925ee9",
+  "KenshiShop/scripts/Core/NPC/RoleAI.lua": "263663f4d3bc8638bda1fece24052bef503bd96f3c31158c206121dbc74bd856",
+  "KenshiShop/scripts/Core/NPC/ServiceTown.lua": "5361450d9215750084352f803756e58692503b546cc75f2bb0e71b6a8f0ea6bd",
+  "KenshiShop/scripts/Core/NPC/Transport.lua": "e24447213180f0277a4a148d575ad58d8346a2aad1adf1c146a0d2597a118bd4",
+  "KenshiShop/scripts/Core/Ownership/Manager.lua": "ce2395b9e1a7ce61a04fc988c908f9eb24d73592a18896e5fa7747e06698b891",
+  "KenshiShop/scripts/KenshiLuaConsole.lua": "ecc30699facda70ae76c6b1f642d0dd9612582ddbdd761a06dd093327e3e1814",
+  "README.md": "e1370f79ffcc53327e065a1d9aca63aeb4b706117c079e9445ad0c3068a36cae",
+  "README_ALPHA86_RU.md": "ae7410e38445a7c31ec8ac80695ff1bc217aed94e3869fd6c570827850c7ee41",
+  "RELEASE_NOTES.md": "8cc268936c92f81662d5af4e018ca51e0a6bf54630b4942270c74dc6938e2673"
+}

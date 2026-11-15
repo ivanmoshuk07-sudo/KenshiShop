@@ -4,22 +4,24 @@ local Log=require('Diagnostics')
 local Nodes=require('Core.NPC.NativeNodes')
 local Goals=require('Core.NPC.NativeGoals')
 local Home=require('Core.NPC.HomeAssignment')
+local Service=require('Core.NPC.ServiceTown')
+local Origin=require('Core.NPC.OriginTown')
 local M={}
 function M.isWorkingPackage(cfg,name)
  local _,label=M.package(cfg)
  if not label then return false end
- for _,version in ipairs({'KS85','KS84','KS83','KS82'})do
-  if name==label:gsub('KS85',version)then return true end
+ for _,version in ipairs({'KS86','KS85','KS84','KS83','KS82'})do
+  if name==label:gsub('KS86',version)then return true end
  end
  return name==({trader=(cfg.shop=='bar' or cfg.shop=='robotics') and 'KS Native Trader 24h' or 'KS Native Trader 06-23',guard='KS Native Indoor guards',chief='KS Native Police chief',patrol='KS Native Town patrol'})[cfg.role]
 end
 function M.package(cfg)
  if cfg.role=='trader' then
-  if cfg.shop=='bar' or cfg.shop=='robotics' then return '8500-KenshiShop.mod','KS85 Trader 24h' end
-  return '8501-KenshiShop.mod','KS85 Trader 06-23'
- elseif cfg.role=='guard' then return '8502-KenshiShop.mod','KS85 Indoor guards'
- elseif cfg.role=='chief' then return '8503-KenshiShop.mod','KS85 Police chief'
- elseif cfg.role=='patrol' then return '8504-KenshiShop.mod','KS85 Town patrol' end
+  if cfg.shop=='bar' or cfg.shop=='robotics' then return '8600-KenshiShop.mod','KS86 Trader 24h' end
+  return '8601-KenshiShop.mod','KS86 Trader 06-23'
+ elseif cfg.role=='guard' then return '8602-KenshiShop.mod','KS86 Indoor guards'
+ elseif cfg.role=='chief' then return '8603-KenshiShop.mod','KS86 Police chief'
+ elseif cfg.role=='patrol' then return '8604-KenshiShop.mod','KS86 Town patrol' end
 end
 local function say(s,event,why)
  Log.console('NPC_ROLE_'..event..' shop='..s.cfg.shop..' role='..s.cfg.role..' building='..s.key..' '..tostring(why or ''))
@@ -38,8 +40,20 @@ function M.ensure(s,ms)
  if not key then return false end
  local r=s.work
  if not r or r.leader~=key then r={leader=key,tries=0,setup={}};s.work=r end
- if r.done then return true end
+ local bb=Live.call(lead,'getBlackboard')
+ local current=bb and Live.call(bb,'getCurrentAIPackageName')
+ if r.installed and current==label and Service.verify(s,bb) then r.done=true;return true end
+ if r.installed and current~=label then
+  r.done=false
+  if r.foreign~=current then say(s,'DEFER','NATIVE_PACKAGE_CHANGED '..tostring(current));r.foreign=current end
+  return false -- do not replace a later native contract/emergency package
+ end
+ r.done=false
  if r.tries>=3 then return false end
+ if r.installed and (r.missionDrifts or 0)>=3 then
+  if not r.driftLimit then say(s,'FAIL','MISSION_REBIND_LIMIT max=3');r.driftLimit=true end
+  return false
+ end
  if not ms or #ms<1 or #ms>s.cfg.count or Live.call(ap,'getSquadSize')~=#ms then return false end
  local found=false
  for _,mate in ipairs(ms)do
@@ -60,7 +74,6 @@ function M.ensure(s,ms)
  local owns=Live.call(s.platoon,'getOwnerships')
  local ok,home=pcall(function()return owns._homeBuilding:toString()end)
  if not ok or home~=s.key then return false end -- ownership lifecycle may still be loading
- local bb=Live.call(lead,'getBlackboard')
  local old=bb and Live.call(bb,'getCurrentAIPackageName')
  if type(old)~='string' then return fail(s,r,'BLACKBOARD_UNAVAILABLE') end
  r.initialPackage=r.initialPackage or old
@@ -100,24 +113,32 @@ function M.ensure(s,ms)
   return false
  end
  if Live.call(bb,'getCurrentAIPackageName')~=label then
-  -- alpha.84 already contains the approved assortment. An AI-only migration
-  -- from it must not forcibly refresh that trader's inventory.
-  if r.initialPackage:sub(1,4)~='KS84' and r.initialPackage:sub(1,4)~='KS85' then r.upgraded=true end
+  -- AI-only migration preserves approved stock, including saved care packages.
+  r.upgraded=false
   local yes,err=pcall(bb.replaceAIPackage,bb,data)
   if not yes then return fail(s,r,'ASSIGN_FAILED '..tostring(err)) end
  end
  if Live.call(bb,'getCurrentAIPackageName')~=label then return fail(s,r,'PACKAGE_VERIFY_FAILED') end
+ if r.installed then r.missionDrifts=(r.missionDrifts or 0)+1 end
+ local bound,why=Service.bind(s,bb)
+ if not bound then return fail(s,r,'SERVICE_ASSIGN '..tostring(why)) end
  for _,mate in ipairs(ms)do
   local orders=Live.call(mate.char,'getOrdersReciever')
   local yes,err=pcall(function()orders:setNeedGOAP()end)
   if not yes then return fail(s,r,'GOAP_WAKE_FAILED '..mate.key..' '..tostring(err))end
  end
- r.done=true
- say(s,'READY','package='..id..' label='..label..' native_care=58,57,148 gameplay=UNVERIFIED')
+ r.done=true;r.installed=true
+ say(s,'READY','package='..id..' label='..label..' service='..tostring(Origin.id(s.building:getTown()))..' native_care=58,57,148 gameplay=UNVERIFIED')
  return true
 end
 function M.status(s)
  local r=s.work
- return not r and 'PENDING' or (r.done and 'PACKAGE_READY' or (r.tries>=3 and 'FAILED' or 'WAIT_SAFE'))
+ local status=not r and 'PENDING' or (r.done and 'PACKAGE_READY' or ((r.tries>=3 or r.driftLimit) and 'FAILED' or 'WAIT_SAFE'))
+ local own=Live.call(s.platoon,'getOwnerships')
+ local ap=Live.call(s.platoon,'getActivePlatoon')
+ local bb=Live.call(Live.call(ap,'getSquadLeader'),'getBlackboard')
+ return status..' origin='..tostring(Origin.id(Origin.field(own,'_homeTown')))
+  ..' service='..tostring(Origin.id(Live.call(s.building,'getTown')))
+  ..' mission='..tostring(Origin.handleID(Live.call(bb,'getMissionTown',false)))
 end
 return M

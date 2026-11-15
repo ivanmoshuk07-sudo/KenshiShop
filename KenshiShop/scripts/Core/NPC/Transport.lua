@@ -1,4 +1,5 @@
 -- KenshiShop alpha.22: finite, isolated NPC spawning and navigation helpers.
+local Origin=require('Core.NPC.OriginTown')
 local M={}
 function M.valid(p)
  return p and type(p.x)=='number' and type(p.y)=='number' and type(p.z)=='number'
@@ -66,8 +67,10 @@ function M.preflight(building,config)
  local town=assert(building:getTown(),'TOWN_MISSING')
  local template=assert(world.gamedata:getData(config.template,52),'SQUAD_TEMPLATE_MISSING')
  local faction=assert(world.factionMgr:getFactionByStringID(config.faction),'FACTION_MISSING')
+ local origin,why=Origin.select(faction,building:getPosition())
+ assert(origin,'NPC_ORIGIN_UNAVAILABLE '..tostring(why))
  local spawn,method=M.selectOutside(building,world)
- return {world=world,town=town,template=template,faction=faction,spawn=spawn,method=method}
+ return {world=world,town=town,origin=origin,template=template,faction=faction,spawn=spawn,method=method}
 end
 function M.spawn(p,building,config)
  -- Native persistent squad, exact FCS leader/squad template. One squad per role.
@@ -75,9 +78,9 @@ function M.spawn(p,building,config)
  -- Alpha.21 passed nil there and every spawn failed with 'bad argument #12'.
  -- Use the parent building handle; target town remains the shop's town.
  return p.world.theFactory:createRandomSquad(
- p.faction,p.spawn,p.town,config.count,building,p.template,
+ p.faction,p.spawn,assert(p.origin,'NPC_ORIGIN_MISSING'),config.count,building,p.template,
  nil,nil,nil,true,building:getHandle(),p.town,1.0,
- -- All groups are residents of their home city; native patrol uses the home town.
+ -- Native NPC origin and player service target are distinct towns.
  ((SquadType and SquadType.SQ_RESIDENT) or 1),false)
 end
 -- KenshiLua exposes world.charUpdateListMain as iterable ogre_unordered_set<Character*>.

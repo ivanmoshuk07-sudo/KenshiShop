@@ -1,0 +1,72 @@
+{
+  "user_theory": "Keep a stable native NPC origin while serving in a player outpost; authorized test implementation alpha.86.",
+  "primary_web_sources": [
+    {
+      "title": "Player Town Settlers — UPDATED for 1.0 (Outpostlife)",
+      "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=816282176",
+      "author": "Nanogiraffe",
+      "facts": [
+        "Settlers remain outside player faction.",
+        "Author explicitly changed Bast from United Cities to Drifters to provide their HQ."
+      ],
+      "limit": "Author page does not expose per-NPC _homeTown runtime changes; cannot assert exact field preservation from description alone."
+    },
+    {
+      "title": "Player Town Settlers Patch 2020",
+      "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=2075414721",
+      "author": "Faylein",
+      "facts": [
+        "Origin settler camps exist in world.",
+        "Inviting starts a contract, settlers travel to player town, wander and shop."
+      ],
+      "limit": "Author notes settlers do not use chairs/beds in this implementation; this is not evidence for full shop/guard behavior."
+    },
+    {
+      "title": "Trader For Hire",
+      "url": "https://steamcommunity.com/workshop/filedetails/?id=1704803250",
+      "author": "Ysky",
+      "facts": [
+        "Trader hired in major NPC cities or Waystations and escorted to outpost."
+      ],
+      "limit": "Description warns about follow behavior and reloads; not a reliable ready-made implementation for permanent shop nodes."
+    },
+    {
+      "title": "KenshiLua RootObjectFactoryBinding.cpp",
+      "url": "https://github.com/Genpretz/KenshiLua/blob/53a7e4d1dc544a6b51872d03990f97af5dded94e/src/Bindings/Kenshi/RootObjectFactoryBinding.cpp#L270-L292",
+      "facts": [
+        "createRandomSquad has distinct homeTown and targetTown arguments."
+      ]
+    }
+  ],
+  "native_confirmation_1068": [
+    "Contract_DefendPlayerBase.activateAndSetup at RVA0x28a170 selects a player town and writes AIPackage.missionTown at +0x8 and missionTarget at +0x28; it does not call Ownerships.setHomeTown in this routine.",
+    "Blackboard.getMissionTown resolves contract/mission town before its optional ownership home fallback.",
+    "Ownerships.setHomeBuilding invokes setHomeTown internally but proceeds with assigning the building handle even when player-status guard leaves a prior NPC home town unchanged."
+  ],
+  "design_candidate": [
+    "Use an actual non-player town for the native origin homeTown, if the role needs one; keep it stable.",
+    "Use player outpost as destination/service missionTown.",
+    "Assign the specific shop/police building and each member broadcast home for building-based roles.",
+    "Use native role goals and verify getMissionTown for patrol, rather than relying on Blackboard.targetTown alone."
+  ],
+  "qualification": "No guarantee of native work-post selection, patrol gate behavior, emergency retreat destination or unload/save persistence until Kenshi gameplay test. Existing logical nodes remain alpha.85.",
+  "mod_changed": true,
+  "implementation": {
+    "origin_api": "createRandomSquad homeTown; Ownerships.setHomeTown; Platoon.myBaseHomeTownData",
+    "work_building": "Ownerships.setHomeBuilding; StateBroadcastData.homeBuilding",
+    "service_api": "AIPackage.missionTown with Blackboard.getMissionTown(false/true) readback",
+    "packages": "8600..8604-KenshiShop.mod; existing goals and schedules; signal 0, unloaded UPJOB_TRAVEL_TARGET (5)",
+    "movement": "Existing finite delivery retained; no post-arrival movement orders added.",
+    "preservation": "All alpha.85 records unchanged; no stock, furniture, post-coordinate or compatibility changes.",
+    "validation_limit": "Mock API tests and binary comparison only; gameplay and native loader compatibility unverified."
+  },
+  "evidence_executable": {
+    "embedded_version": "1.0.68 Steam",
+    "sha256": "a596ab4e407c67b58599c54ffb32dc1bf2b64510cdebd3fa9359ef05a576aeb1",
+    "setHomeTown_RVA": "0x7ec8d0",
+    "setHomeBuilding_RVA": "0x7ec9e0",
+    "getMissionTown_RVA": "0x269cd0",
+    "contractDefendPlayerBaseActivate_RVA": "0x28a170",
+    "note": "Static inspection of user-provided EXE; no binary loaded or modified. These addresses are not used by the mod. Supplied log/table say 1.0.65; unresolved version mismatch."
+  }
+}

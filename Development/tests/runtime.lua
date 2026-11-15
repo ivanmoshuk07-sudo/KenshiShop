@@ -9,13 +9,21 @@ package.loaded['Core.NPC.NativeNodes']={ensure=function()return true end}
 local Live=require('Core.NPC.LiveState')
 local Work=require('Core.NPC.RoleAI')
 local label,replaceCount,setupCount,failMember,busy,carrying
-local town={getHandle=function()return {toString=function()return 'town'end}end}
-local faction={getData=function()return {stringID='400-KenshiShop.mod'}end}
-local owns={_homeBuilding={toString=function()return 'home'end},_homeTown=town}
+local player={isThePlayer=function()return true end}
+local town={getHandle=function()return {toString=function()return 'town'end}end,getFaction=function()return player end}
+local origin={townType=2,isValid=function()return true end,getHandle=function()return {toString=function()return 'origin'end}end,
+ getGameData=function()return {stringID='origin-data'}end}
+local faction={getData=function()return {stringID='400-KenshiShop.mod'}end,isThePlayer=function()return false end,
+ isNotARealFaction=function()return false end,relations={isEnemy=function()return false end}}
+origin.getFaction=function()return faction end
+origin.getPosition=function()return {x=100,y=0,z=0}end
+function getSharedKing()return {townList={getAllTowns=function()return {{getHandle=function()return {toString=function()return 'origin'end,getTown=function()return origin end}end}}end}}end
+local owns={_homeBuilding={toString=function()return 'home'end},_homeTown=origin}
 function owns:setHomeBuilding(h)self._homeBuilding=h end
 function owns:setHomeTown(t)self._homeTown=t end
-local bb={getCurrentTownLocation=function()return town end,getCurrentAIPackageName=function()return label end,
- replaceAIPackage=function(_,data)label=data.name;replaceCount=replaceCount+1 end}
+local currentPackage={}
+local bb={getCurrentPackage=function()return currentPackage end,getMissionTown=function()return currentPackage.missionTown end,getCurrentTownLocation=function()return town end,getCurrentAIPackageName=function()return label end,
+ replaceAIPackage=function(_,data)label=data.name;currentPackage={};replaceCount=replaceCount+1 end}
 local function member(key)
  local state={}
  local c={getStateBroadcast=function()return state end,getHandle=function()return {toString=function()return key end}end,
@@ -30,16 +38,17 @@ end
 local a,b=member('leader'),member('mate')
 local ap={getSquadLeader=function()return a.char end,getSquadSize=function()return 2 end}
 local p={getSquadType=function()return 1 end,getFaction=function()return faction end,getActivePlatoon=function()return ap end,getOwnerships=function()return owns end}
-local gm={getData=function(_,id)return {name='KS85 Indoor guards'}end}
+local gm={getData=function(_,id)return {name='KS86 Indoor guards'}end}
 function getGameWorld()return {gamedata=gm}end
 local function state()
+ owns._homeTown=origin;currentPackage={};p.myBaseHomeTownData=nil
  label='KS Medic Robotics Rescue';replaceCount=0;setupCount=0;failMember=nil;busy=false;carrying=false
- return {cfg={shop='bar',role='guard',count=2,faction='400-KenshiShop.mod'},key='home',platoon=p,building={getHandle=function()return {toString=function()return 'home'end}end,getFaction=function()return faction end,getTown=function()return town end}}
+ return {cfg={shop='bar',role='guard',count=2,faction='400-KenshiShop.mod'},key='home',platoon=p,building={getHandle=function()return {toString=function()return 'home'end}end,getFaction=function()return faction end,getTown=function()return town end,getPosition=function()return {x=0,y=0,z=0}end}}
 end
 test('roles choose 24h/day/guard/chief/patrol packages',function()
- for _,x in ipairs({{'bar','trader','8500'},{'robotics','trader','8500'},{'engineering','trader','8501'},
-  {'weapons','trader','8501'},{'armour','trader','8501'},{'bar','guard','8502'},
-  {'police','chief','8503'},{'police','patrol','8504'}})do
+ for _,x in ipairs({{'bar','trader','8600'},{'robotics','trader','8600'},{'engineering','trader','8601'},
+  {'weapons','trader','8601'},{'armour','trader','8601'},{'bar','guard','8602'},
+  {'police','chief','8603'},{'police','patrol','8604'}})do
   local id=Work.package({shop=x[1],role=x[2]});assert(id==x[3]..'-KenshiShop.mod')
  end
 end)
@@ -59,25 +68,25 @@ test('native/player orders defer package replacement without using retry budget'
  assert(not Work.ensure(s,{a,b}));assert(replaceCount==0 and s.work.tries==0)
  a.char.getOrdersReciever=old;assert(Work.ensure(s,{a,b}))
 end)
-test('an incorrect restored home town is repaired before native wandering is enabled',function()
- local s=state();owns._homeTown={getHandle=function()return {toString=function()return 'wrong-town'end}end}
+test('missing origin is repaired without assigning the player town',function()
+ local s=state();owns._homeTown=nil
  local calls=0
- owns.setHomeTown=function(self,t,kind)assert(t==town and kind==1);self._homeTown=t;calls=calls+1 end
+ owns.setHomeTown=function(self,t,kind)assert(t==origin and kind==1);self._homeTown=t;calls=calls+1 end
  assert(Work.ensure(s,{a,b}));assert(calls==1 and bb.targetTown==town)
- owns.setHomeTown=nil
+ owns.setHomeTown=function(self,t)self._homeTown=t end
 end)
 test('partial member setup retries without replacing package again',function()
  local s=state();failMember='mate';assert(not Work.ensure(s,{a,b}));assert(setupCount==1)
  failMember=nil;assert(Work.ensure(s,{a,b}));assert(replaceCount==1 and setupCount==2)
 end)
 test('saved matching package still finishes member setup',function()
- local s=state();label='KS85 Indoor guards';assert(Work.ensure(s,{a,b}));assert(replaceCount==0 and setupCount==2)
+ local s=state();label='KS86 Indoor guards';assert(Work.ensure(s,{a,b}));assert(replaceCount==0 and setupCount==2)
 end)
 test('saved alpha.81 and alpha.82 packages are recognized, then migrated once',function()
- for _,old in ipairs({'KS Native Indoor guards','KS82 Indoor guards','KS83 Indoor guards'})do
+ for _,old in ipairs({'KS Native Indoor guards','KS82 Indoor guards','KS83 Indoor guards','KS84 Indoor guards','KS85 Indoor guards'})do
   local s=state();label=old
   assert(Work.isWorkingPackage(s.cfg,label));assert(Work.ensure(s,{a,b}))
-  assert(s.work.upgraded and label=='KS85 Indoor guards' and replaceCount==1)
+  assert(not s.work.upgraded and label=='KS86 Indoor guards' and replaceCount==1)
   assert(Work.ensure(s,{a,b}) and replaceCount==1)
  end
 end)
