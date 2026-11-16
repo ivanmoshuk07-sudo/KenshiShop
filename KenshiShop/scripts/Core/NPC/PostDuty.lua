@@ -8,6 +8,16 @@ local Log=require('Diagnostics')
 local Transform=require('Transform')
 local M={}
 function M.day(now)local h=now/60%24;return h>=6 and h<23 end
+local function nextShift(now)
+ local midnight=now-now%1440
+ if now<midnight+360 then return midnight+360 end
+ if now<midnight+1380 then return midnight+1380 end
+ return midnight+1800
+end
+local function rosterKey(ms)
+ local keys={};for _,m in ipairs(ms)do keys[#keys+1]=m.key end
+ table.sort(keys);return table.concat(keys,'\0')
+end
 function M.candidates(shop,role,floor)
  local out={}
  for i,p in ipairs(Posts[shop] or {})do
@@ -48,21 +58,34 @@ function M.tick(s,ms)
  -- Patrols retain the native route in the day; only the night shift gets
  -- personal post subjects. The leader/follower FCS goals are time-gated too.
  if role=='patrol' and s.cfg.shop~='police' then return end
- if Live.call(s.building,'isPhysical')~=true then return end
- local day=M.day(s.now)
- local patrolActive=role=='patrol' and ((s.cfg.patrolNight and not day) or (not s.cfg.patrolNight and day))
  if role=='trader' and (s.cfg.shop=='bar' or s.cfg.shop=='robotics') then return end
  local state=s.postDuty or {members={},floorByMember={},patrolSlots={}};s.postDuty=state
  state.patrolSlots=state.patrolSlots or {}
- local physical=tostring(Live.call(s.building,'getRootNode'))
- if state.physical~=physical then
-  for _,r in pairs(state.members)do r.mode=nil;r.prepared=nil;r.node=nil;r.observeAt=nil;r.tries=0 end
-  state.open=nil;state.physical=physical
+ local roster=rosterKey(ms)
+ local rollback=state.lastNow and s.now<state.lastNow
+ local awake=not state.nextWake or s.now>=state.nextWake or state.roster~=roster or rollback
+ state.lastNow=s.now;state.roster=roster
+ -- Most calls stop before touching native objects. A bounded physical audit
+ -- also notices an interior unloading/reloading between shift deadlines.
+ if not awake and state.physicalAt and s.now<state.physicalAt then return end
+ if awake or not state.physicalAt or s.now>=state.physicalAt or rollback then
+  if Live.call(s.building,'isPhysical')~=true then
+   state.physical=nil;state.physicalAt=s.now+1;state.nextWake=s.now+1
+   return
+  end
+  local physical=tostring(Live.call(s.building,'getRootNode'))
+  if state.physical~=physical then
+   for _,r in pairs(state.members)do r.mode=nil;r.prepared=nil;r.node=nil;r.observeAt=nil;r.tries=0 end
+   state.open=nil;state.physical=physical;awake=true
+  end
+  state.physicalAt=s.now+10
  end
- if state.lastNow and s.now<state.lastNow then
+ if not awake then return end
+ local day=M.day(s.now)
+ local patrolActive=role=='patrol' and ((s.cfg.patrolNight and not day) or (not s.cfg.patrolNight and day))
+ if rollback then
   for _,r in pairs(state.members)do r.nextAt=s.now end
  end
- state.lastNow=s.now
  if role=='patrol' then
   local present={};for _,m in ipairs(ms)do present[m.key]=true end
   for key in pairs(state.patrolSlots)do
@@ -154,5 +177,19 @@ function M.tick(s,ms)
    end
   end
  end
+ -- Busy or temporarily unavailable work keeps its one-minute controller
+ -- retry. Successful work sleeps until its next rotation/shift or readback.
+ local wake=role=='guard' and math.huge or nextShift(s.now)
+ if role=='trader' and state.open~=day then wake=s.now end
+ for _,m in ipairs(ms)do
+  local r=state.members[m.key]
+  local floor=role=='guard' and state.floorByMember[m.key] or 0
+  local mode=role=='guard' and ('FLOOR_'..floor) or (day and 'DAY' or 'NIGHT')
+  local due=r.mode~=mode or (role=='guard' and s.now>=(r.nextAt or 0))
+  if due and r.tries<3 then wake=s.now end
+  if role=='guard' and r.mode==mode and r.nextAt and r.nextAt>s.now then wake=math.min(wake,r.nextAt)end
+  if r.observeAt then wake=math.min(wake,r.observeAt)end
+ end
+ state.nextWake=wake
 end
 return M

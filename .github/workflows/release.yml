@@ -20,6 +20,9 @@ jobs:
       - name: Validate Lua and behavior with fake engine objects
         run: |
           find KenshiShop/scripts -name '*.lua' -print0 | xargs -0 -n 1 luac -p
+          lua Development/tests/member_index.lua KenshiShop/scripts
+          lua Development/tests/monitor_queue.lua KenshiShop/scripts
+          lua Development/tests/supply_queue.lua KenshiShop/scripts
           lua Development/tests/runtime.lua KenshiShop/scripts
           lua Development/tests/controller.lua KenshiShop/scripts
           lua Development/tests/duty.lua KenshiShop/scripts
@@ -36,10 +39,10 @@ jobs:
           lua Development/tests/police_patrol.lua KenshiShop/scripts
           lua Development/tests/police_recruit.lua KenshiShop/scripts
           lua Development/tests/police_services.lua KenshiShop/scripts
-      - name: Validate selected casualty dialogue and preserved gameplay data against beta.3
+      - name: Validate preserved gameplay data against beta.4
         run: |
-          git show v1.0-beta.3:KenshiShop/KenshiShop.mod > /tmp/kenshishop-beta3.mod
-          python Development/tests/data_beta4.py /tmp/kenshishop-beta3.mod KenshiShop/KenshiShop.mod
+          git show v1.0-beta.4:KenshiShop/KenshiShop.mod > /tmp/kenshishop-beta4.mod
+          python Development/tests/data_beta5.py /tmp/kenshishop-beta4.mod KenshiShop/KenshiShop.mod
       - name: Choose the version
         id: version
         env:

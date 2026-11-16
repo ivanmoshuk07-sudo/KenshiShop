@@ -9,7 +9,7 @@ local function emit(name,...)
  for _,fn in ipairs(events[name] or {})do fn(...)end
 end
 package.loaded.Diagnostics={console=function(s)logs[#logs+1]=s end,error=function(s)error(s)end}
-local clock,bank,spawns,adopts,finishes,postChecks,scans=100,100000,0,0,0,0,0
+local clock,bank,spawns,adopts,finishes,postChecks,scans,memberReads,lookups=100,100000,0,0,0,0,0,0,0
 local blockPosts,waitFinish,unknownMember,scanAvailable=false,false,false,true
 local lastSpawnRecord,lastSpawnTemplate
 local native,buildings={},{}
@@ -47,7 +47,7 @@ local Roster={}
 function Roster.scan()scans=scans+1;return scanAvailable,'SCAN_UNAVAILABLE'end
 function Roster.reset()end
 function Roster.building(key)return buildings[key]end
-function Roster.findPlatoon(pid)return native[pid],native[pid] and nil or 'TRUE_NOT_FOUND'end
+function Roster.findPlatoon(pid)lookups=lookups+1;return native[pid],native[pid] and nil or 'TRUE_NOT_FOUND'end
 function Roster.observe()return true end
 function Roster.death(c)if c and c.dead then Store.get().roster[c.id].dead=true;return true end end
 function Roster.losses(city)
@@ -71,7 +71,7 @@ package.loaded['Core.NPC.NativeNodes']={target=function(_,_,_,_,slot)
  postChecks=postChecks+1;if blockPosts then return nil,'INVALID_POST'end;return {slot=slot}
 end}
 package.loaded['Core.NPC.Transport']={preflight=function()return {}end,
- members=function(_,p)return p.members end,
+ members=function(_,p,_,fresh)assert(fresh==true,'paid readback must bypass shared membership cache');memberReads=memberReads+1;return p.members end,
  spawn=function()
   spawns=spawns+1;local pid='hired'..spawns
   local p={members={member(pid..'-1'),member(pid..'-2'),member(pid..'-3')},getPlatoonStringID=function()return pid end}
@@ -119,7 +119,7 @@ local count=0
 local function test(name,fn)fn();count=count+1;print('PASS '..name)end
 local function click(action,selectedID)assert(Services.request(action,chief,player,selectedID));Services.tick()end
 local function recover()
- clock=clock+11;for i=1,60 do Services.tick()end
+ clock=clock+11;for i=1,64 do Services.tick()end
 end
 test('checking losses is free and one paid replacement does not recreate a survivor',function()
  fixture();click('check');assert(bank==100000 and spawns==0)
@@ -251,5 +251,44 @@ end)
 test('a new campaign becomes save-scoped on its first ordinary native save',function()
  fixture();Services.resetSession();assert(not Store.ready())
  emit('PlayerInterface::serialise',{},data());assert(Store.ready())
+end)
+test('completed hired history is absent from periodic actor reads and platoon lookups',function()
+ fixture();click('hire')
+ local beforeReads,beforeLookups,beforeScans=memberReads,lookups,scans
+ recover();local firstScans=scans
+ for i=1,5 do recover()end
+ assert(firstScans==beforeScans+1 and scans==firstScans,'full roster reconciliation is not a ten-minute poll')
+ assert(memberReads==beforeReads and lookups==beforeLookups and adopts==1)
+ assert(Store.get().orders['1'].status=='complete','historical receipts must remain saved')
+end)
+test('full reconciliation is rare and confirmed death events do not trigger another scan',function()
+ fixture();recover();local before=scans
+ Store.get().roster.dead.dead=false
+ emit('Character::declareDead',{id='dead',dead=true})
+ assert(Store.get().roster.dead.dead and scans==before)
+ for i=1,10 do recover()end
+ assert(scans==before,'event and ordinary observations replace repeated full death scans')
+ recover();assert(scans==before+1,'rare reconciliation still discovers missed or historical corpses')
+end)
+test('recovery distributes saved paid squads over separate frames and removes completed work',function()
+ fixture();click('hire');click('hire')
+ local save=data();emit('PlayerInterface::serialise',{},save)
+ Services.resetSession();emit('PlayerInterface::loadFromSerialise',{},save)
+ local before=adopts
+ for i=1,60 do Services.tick();assert(adopts==before)end
+ Services.tick();assert(adopts==before+1)
+ Services.tick();assert(adopts==before+2)
+ local reads=memberReads;recover();assert(adopts==before+2 and memberReads==reads)
+end)
+test('load clears transient work and restores only actual pending replacement receipts',function()
+ fixture();waitFinish=true;click('replace','dead')
+ local order=Store.get().orders['1'];assert(order.status=='pending')
+ -- Many completed historical receipts must not become recovery work.
+ for i=1,1000 do Store.get().orders['history-'..i]={id='history-'..i,kind='replace',status='complete',subject='old-'..i,metadata={}}end
+ local save=data();emit('PlayerInterface::serialise',{},save)
+ Services.resetSession();emit('PlayerInterface::loadFromSerialise',{},save)
+ waitFinish=false;local before=finishes;recover()
+ assert(finishes==before+1 and Store.get().orders['1'].status=='complete' and spawns==1 and bank==90000)
+ recover();assert(finishes==before+1 and Store.get().orders['history-1000'].status=='complete')
 end)
 print('Chief service payment/reload integration tests passed: '..count)

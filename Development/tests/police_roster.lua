@@ -122,6 +122,19 @@ test('loaded faction scans use the native character membership set',function()
  assert(Roster.scan());assert(Store.get().roster.chief.dead==false)
  c.dead=true;assert(Roster.scan());assert(Store.get().roster.chief.dead==true)
 end)
+test('a fresh reconciliation requests only one global membership refresh for all squads',function()
+ local b=fixture();local first=squad('first','7800-KenshiShop.mod',b);local second=squad('second','311-KenshiShop.mod',b)
+ local a=member('first-member',first);local c=member('second-member',second)
+ active={first,second};world.charUpdateListMain[a]=true;world.charUpdateListMain[c]=true
+ local transport=require('Core.NPC.Transport');local original=transport.members;local calls={}
+ transport.members=function(w,p,expected,fresh)
+  calls[#calls+1]=fresh==true
+  return original(w,p,expected,fresh)
+ end
+ local ok,why=Roster.scan(true);transport.members=original
+ assert(ok,why);assert(#calls==2 and calls[1]==true and calls[2]==false)
+ assert(Store.get().roster[a.key] and Store.get().roster[c.key])
+end)
 test('historical native corpses can be recognized without any earlier observation',function()
  local b=fixture();local p=squad('old-guard','7800-KenshiShop.mod',b)
  local c=member('old-corpse',p,'KS: Охрана (2 этаж)','saved-race');c.dead=true

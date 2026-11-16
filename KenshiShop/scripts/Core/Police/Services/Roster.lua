@@ -103,7 +103,12 @@ local function resolve(cache,key,method)
   end
  end
 end
-function M.reset()buildings={};characters={}end
+function M.reset()
+ buildings={};characters={}
+ -- A save can change at the same game minute; time gating must not retain
+ -- handles from the preceding world while service controllers are absent.
+ if type(Transport.resetMembers)=='function' then Transport.resetMembers()end
+end
 function M.building(key)return resolve(buildings,key,'getBuilding')end
 function M.character(key)return resolve(characters,key,'getCharacter')end
 function M.findPlatoon(pid)
@@ -206,7 +211,7 @@ function M.death(c)
  row.dead=true;remember(characters,c,key)
  return true,row
 end
-function M.scan()
+function M.scan(fresh)
  if not Store.ready() then return false,'STORE_NOT_READY' end
  local w=world();if not w then return false,'WORLD_UNAVAILABLE' end
  local grouped,complete,reason=lists(w)
@@ -224,8 +229,11 @@ function M.scan()
      buildings[key]=h
      local b=call(h,'getBuilding')
      if b and call(p,'getActivePlatoon') then
-      local ok,ms=pcall(Transport.members,w,p,cfg.count)
+      -- One fresh global membership pass covers every platoon in this scan;
+      -- subsequent consumers share it instead of rewalking all loaded NPCs.
+      local ok,ms=pcall(Transport.members,w,p,cfg.count,fresh==true)
       if ok and ms then
+       fresh=false
        local observed,n=M.observe({cfg=cfg,platoon=p,building=b,key=key},ms)
        if observed then count=count+n end
       end

@@ -42,6 +42,7 @@ local Live={call=function(o,m,...)if o and type(o[m])=='function'then return o[m
 package.loaded['Core.NPC.LiveState']=Live
 package.loaded['Core.NPC.NoSever']={tick=function()end}
 package.loaded['Core.NPC.Transport']={members=function(_,p)return p.members end,valid=function()return true end,
+ resetMembers=function()end,
  distance2D=function()return 900 end,spawn=function()spawns=spawns+1 end}
 package.loaded['Core.NPC.Appearance']={apply=function()error('saved NPC appearance must not change')end}
 package.loaded['Core.NPC.Supplies']={sync=function()return true,'UNCHANGED'end}

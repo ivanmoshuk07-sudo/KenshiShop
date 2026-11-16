@@ -1,5 +1,6 @@
 -- KenshiShop alpha.22: finite, isolated NPC spawning and navigation helpers.
 local Origin=require('Core.NPC.OriginTown')
+local MemberIndex=require('Core.NPC.MemberIndex')
 local M={}
 function M.valid(p)
  return p and type(p.x)=='number' and type(p.y)=='number' and type(p.z)=='number'
@@ -73,6 +74,7 @@ function M.preflight(building,config)
  return {world=world,town=town,origin=origin,template=template,faction=faction,spawn=spawn,method=method}
 end
 function M.spawn(p,building,config)
+ MemberIndex.reset()
  -- Native persistent squad, exact FCS leader/squad template. One squad per role.
  -- The 11th supplied parameter (AItarget) MUST be a real KenshiLua.hand.
  -- Alpha.21 passed nil there and every spawn failed with 'bad argument #12'.
@@ -85,35 +87,6 @@ function M.spawn(p,building,config)
 end
 -- KenshiLua exposes world.charUpdateListMain as iterable ogre_unordered_set<Character*>.
 -- Do not use undocumented ActivePlatoon.characterHandles (lightuserdata).
-function M.members(world,platoon,expected)
- local set=world and world.charUpdateListMain
- if not set then return nil,'CHARACTER_SET_UNAVAILABLE' end
- local id=platoon and platoon:getPlatoonStringID()
- if not id or id=='' then return nil,'PLATOON_ID_UNAVAILABLE' end
- local out,seen={},{}
- local ok,err=pcall(function()
-  local scanned=0
-  for char in pairs(set) do
-   scanned=scanned+1
-   if scanned>12000 then error('CHARACTER_SCAN_SAFETY_CAP') end
-   if char then
-    local good,match=pcall(function()
-     local ap=char:getPlatoon()
-     return ap and ap.me and ap.me:getPlatoonStringID()==id
-    end)
-    if good and match then
-     local key
-     local hk,h=pcall(function()return char:getHandle():toString()end)
-     if hk and h then key=tostring(h) end
-     if not key then key='member-'..tostring(char.squadMemberID or tostring(char)) end
-     if not seen[key] then seen[key]=true;out[#out+1]={key=key,char=char} end
-    end
-   end
-  end
- end)
- if not ok then return nil,'SCAN_EXCEPTION '..tostring(err) end
- if #out>expected+2 then return nil,'MEMBER_COUNT_EXCESS '..#out end
- table.sort(out,function(a,b)return a.key<b.key end)
- return out,nil
-end
+function M.members(world,platoon,expected,fresh)return MemberIndex.members(world,platoon,expected,fresh)end
+function M.resetMembers()MemberIndex.reset()end
 return M

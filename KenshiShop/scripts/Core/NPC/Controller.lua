@@ -4,14 +4,14 @@ local T=require('Core.NPC.Transport')
 local Live=require('Core.NPC.LiveState')
 local Existing=require('Core.NPC.ExistingSquads')
 local Appearance=require('Core.NPC.Appearance')
-local Supplies=require('Core.NPC.Supplies')
+local SupplyQueue=require('Core.NPC.SupplyQueue')
+local MonitorQueue=require('Core.NPC.MonitorQueue')
 local Work=require('Core.NPC.RoleAI')
 local Catalog=require('Core.NPC.Catalog')
 local Duty=require('Core.NPC.Duty')
 local Residence=require('Core.NPC.Residence')
 local NoSever=require('Core.NPC.NoSever')
 local M={}
-local FRAME_STEP=40
 local ARRIVAL_RADIUS=26
 local POLICE_ARRIVAL_RADIUS=80
 local function radius(s) return s.cfg.shop=='police' and POLICE_ARRIVAL_RADIUS or ARRIVAL_RADIUS end
@@ -36,33 +36,12 @@ end
 local function fatal(s,reason)
  s.phase='FAILED';s.reason=reason;s.nextCheck=Live.clock()+AUDIT_MINUTES
  emit(s,'DELIVERY_FAIL','reason='..tostring(reason)..' no_respawn','fatal_'..tostring(reason))
- if s.hook then Events.off(s.hook);s.hook=nil end
+ SupplyQueue.cancel(s)
+ if s.hook then MonitorQueue.remove(s.hook);s.hook=nil end
 end
 -- Original auto-refill for first-aid and robotics kits. Bounded failures per NPC.
 local function supplyAudit(s,ms,now)
- if s.nextSupplyCheck and now<s.nextSupplyCheck then return end
- if s.supplyResetAt and now>=s.supplyResetAt then s.supplyFailures={};s.supplyResetAt=nil end
- s.nextSupplyCheck=now+10 -- 10 in-game minutes; NPCs in active loaded squads only
- s.supplyFailures=s.supplyFailures or {}
- for _,m in ipairs(ms)do
-  local fail=s.supplyFailures[m.key] or 0
-  if fail<3 and Live.call(m.char,'isDead')~=true then
-   local ok,done,detail=pcall(Supplies.sync,m.char,getGameWorld())
-   if ok and done then
-    s.supplyFailures[m.key]=0
-    if detail~='UNCHANGED' then
-     Log.console('NPC_SUPPLY_REFILL shop='..s.cfg.shop..' squad='..s.cfg.role..' member='..m.key..' '..tostring(detail))
-    else emit(s,'SUPPLY_OK','member='..m.key..' first_aid=present repair=present','supply_ok_'..m.key) end
-   else
-    fail=fail+1;s.supplyFailures[m.key]=fail
-    Log.console('NPC_SUPPLY_RETRY shop='..s.cfg.shop..' squad='..s.cfg.role..' member='..m.key..' attempt='..fail..'/3 '..tostring(ok and detail or done))
-    if fail>=3 then
-     s.supplyResetAt=s.supplyResetAt or now+60
-     Log.error('NPC_SUPPLY_COOLDOWN shop='..s.cfg.shop..' member='..m.key..' retry_after=60_game_minutes')
-    end
-   end
-  end
- end
+ SupplyQueue.enqueue(s,ms,now)
 end
 local function squadMembers(s)
  local ap=Live.call(s.platoon,'getActivePlatoon')
@@ -78,6 +57,7 @@ local function squadMembers(s)
  if type(count)~='number' or count<1 or count>s.cfg.count or (s.phase~='DELIVERED' and not nativeSaved and count~=s.cfg.count) then
   return nil,nil,'COUNT_MISMATCH '..tostring(count)..'/'..s.cfg.count end
  local ms,err=T.members(getGameWorld(),s.platoon,s.cfg.count)
+ if ms and #ms~=count then ms,err=T.members(getGameWorld(),s.platoon,s.cfg.count,true)end
  if not ms or err or #ms~=count then
   return nil,nil,'MEMBER_SCAN_INCOMPLETE '..tostring(ms and #ms or 0)..'/'..s.cfg.count..' '..tostring(err)
  end
@@ -404,13 +384,14 @@ function M.new(cfg)
  local states={}
  local driver={}
  local function stop(s)
-  if s.hook then Events.off(s.hook);s.hook=nil end
+  SupplyQueue.cancel(s)
+  if s.hook then MonitorQueue.remove(s.hook);s.hook=nil end
  end
  local function tick(s)
   s.frames=s.frames+1
-  if s.frames%FRAME_STEP~=0 then return end
   local now=Live.clock()
   if s.previousClock and now+0.001<s.previousClock then
+   SupplyQueue.cancel(s);T.resetMembers()
    -- All stores recover their EXISTING squad on clock rewind. A previous
    -- version stopped monitoring four stores and lost unfinished delivery.
    s.previousClock=now;s.nextCheck=0;s.phase='WAIT_SAVED'
@@ -521,16 +502,16 @@ function M.new(cfg)
   end
   if s.phase=='MOVING' or s.phase=='DELIVERY_PAUSED' or s.phase=='FAILED' then return audit(s,ms,snap)end
  end
- local function attach(s)
+ local function attach(s,delayFrames)
   if s.hook then return true end
-  local ok,id=pcall(Events.on,'MyGUI::Gui::eventFrameStart',function()
+  local id,why=MonitorQueue.add(function()
    local good,reason=pcall(tick,s)
    if not good then
     Log.error('NPC_MONITOR_EXCEPTION shop='..cfg.shop..' '..tostring(reason))
     s.phase='FAILED';stop(s)
    end
-  end)
-  if not ok or not id then s.phase='HOOK_FAILED';Log.error('NPC_HOOK_FAILED '..cfg.shop..' '..tostring(id));return false end
+  end,delayFrames)
+  if not id then s.phase='HOOK_FAILED';Log.error('NPC_HOOK_FAILED '..cfg.shop..' '..tostring(why));return false end
   s.hook=id;return true
  end
  local function newState(b,p,saved)
@@ -540,7 +521,8 @@ function M.new(cfg)
   states[key]=s
   if p then emit(s,saved and 'SAVED_FOUND' or 'SPAWN',saved and ('existing_platoon='..tostring(Live.call(p,'getPlatoonStringID'))..' no_respawn') or 'native_platoon_created') end
   s.nextCheck=0
-  attach(s)
+  -- Preserve the factory's legacy 40-frame registration grace for new squads.
+  attach(s,saved and 0 or 40)
   return s
  end
  function driver.start(b)
@@ -611,9 +593,11 @@ function M.new(cfg)
   return true,'WAIT_ACTIVE'
  end
  function driver.resume(b)
+  T.resetMembers()
   local key=b:getHandle():toString()
   local s=states[key]
   if s then
+   SupplyQueue.cancel(s)
    if s.hook then
     -- Load callbacks may reuse the same building handle while old monitors exist.
     -- Reset stale native pointers; wait for read-only saved-squad resolution.
@@ -659,6 +643,7 @@ function M.new(cfg)
   local ok,faction=pcall(function()return data.stringID end)
   if not ok or faction~=cfg.faction then return false,'ADOPT_FACTION_MISMATCH' end
   options=type(options)=='table' and options or {}
+  T.resetMembers()
   local function seed(s)
    if options.work and not s.work then s.work=options.work end
    if options.initializedMember then

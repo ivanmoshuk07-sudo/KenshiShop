@@ -16,7 +16,9 @@ local Log=require('Diagnostics')
 local M={}
 local queue,drivers,pending,attached,dialogueStatus={},{},{},{},{}
 local started,hooksReady,hooksInstalled,loadedSeen=false,false,false,false
-local frames,nextScan,epoch,sequence=0,0,0,0
+local frames,nextScan,nextReconcile,epoch,sequence=0,0,0,0,0
+local indexed,recoverOrders,recoverPatrols,recoveryQueue=false,{},{},{}
+local RECOVER_MINUTES,RECONCILE_MINUTES=10,120
 local function field(o,k)local ok,v=pcall(function()return o[k]end);if ok then return v end end
 local function sid(o)return field(Live.call(o,'getGameData'),'stringID')end
 local function id(o)return Live.call(Live.call(o,'getHandle'),'toString')end
@@ -102,7 +104,7 @@ function M.listLosses(chief,player)
  local ctx,why=context(chief,player)
  if not ctx then return nil,why end
  if not hooksReady or not Store.ready() then return nil,'SERVICE_STORE_NOT_READY'end
- local scanned,scanWhy=Roster.scan()
+ local scanned,scanWhy=Roster.scan(true)
  if not scanned then report('SCAN_UNAVAILABLE',scanWhy);return nil,scanWhy or 'SCAN_UNAVAILABLE'end
  return lossSnapshots(ctx)
 end
@@ -120,7 +122,8 @@ local function driverFor(p,cfg)
  return require(cfg.driver)
 end
 local function actorCount(p,cfg)
- local ms=Transport.members(getGameWorld(),p,cfg.count)
+ -- Paid allocation/readback must see the newly created actor immediately.
+ local ms=Transport.members(getGameWorld(),p,cfg.count,true)
  if not ms then return nil end
  local alive={}
  for _,mate in ipairs(ms)do if Live.call(mate.char,'isDead')==false then alive[#alive+1]=mate end end
@@ -174,12 +177,16 @@ local function finishReplacement(order,plan,receipt)
  end
  Roster.observe({cfg=cfg,platoon=receipt.platoon,building=plan.building,key=id(plan.building),now=Live.clock()},ms)
  order.status='complete';receipt.pending=false
+ recoverOrders[order.id]=nil
  report('REPLACEMENT_READY','order='..order.id..' old='..plan.record.id..' new='..receipt.member..' pid='..receipt.pid)
  return true
 end
 local function finishHired(order,p,building)
  local row=Store.get().patrols[order.pid]
  if not row then return false,'HIRED_RECEIPT_MISSING'end
+ -- Once adopted, the ordinary controller owns its roster and duty. Historical
+ -- receipts are retained for payment idempotency, not polled as active work.
+ if attached[order.pid] and order.status=='complete' then return true end
  local residentPID=order.metadata.residentPID
  if residentPID then
   local actual=Live.call(Live.call(field(building,'residentSquad'),'getPlatoon'),'getPlatoonStringID')
@@ -195,7 +202,6 @@ local function finishHired(order,p,building)
  local ms=actorCount(p,cfg)
  local complete=order.status=='complete'
  if not complete and (not ms or #ms~=3) then return false,'HIRED_MEMBERS_LOADING'end
- if attached[order.pid] and complete then return true end
  local driver=driverFor(p,cfg)
  if not attached[order.pid] then
   local ok,why=driver.adopt(building,p,{fresh=not row.adopted})
@@ -203,6 +209,7 @@ local function finishHired(order,p,building)
   attached[order.pid]=true
  end
  row.adopted=true;order.status='complete'
+ recoverPatrols[order.pid]=nil
  if ms then Roster.observe({cfg=cfg,platoon=p,building=building,key=id(building),now=Live.clock()},ms)end
  report(complete and 'HIRED_RESUMED' or 'HIRED_READY','order='..order.id..' pid='..order.pid..' count='..tostring(ms and #ms)..' day=posts night=patrol base='..row.base)
  return true
@@ -214,6 +221,28 @@ local function pendingUnknown(town)
     or (order.status=='pending' and (not order.pid or (order.kind=='replace' and not order.member)))) then return true end
  end
  return false
+end
+local function track(order)
+ if not order then return end
+ if order.kind=='replace' then
+  recoverOrders[order.id]=order.status=='pending' and true or nil
+ elseif order.kind=='hire' and order.pid then
+  recoverPatrols[order.pid]=not attached[order.pid] and true or nil
+ end
+end
+local function indexWork()
+ -- Rebuild transient work sets once per native load. Keep all historical
+ -- receipts in Store, including uncertain payments, to prevent double debit.
+ if indexed or not Store.ready() then return end
+ for _,record in pairs(Store.get().roster)do
+  if record.order then
+   local order=Store.get().orders[record.order]
+   if order and (order.status=='cancelled' or order.status=='refunded') then record.order=nil end
+  end
+ end
+ for _,order in pairs(Store.get().orders)do track(order)end
+ for pid in pairs(Store.get().patrols)do if not attached[pid] then recoverPatrols[pid]=true end end
+ indexed=true
 end
 local function replace(ctx,selectedID)
  local record,selectionWhy=selectedLoss(ctx,selectedID)
@@ -238,6 +267,7 @@ local function replace(ctx,selectedID)
    end
    return nil,err,uncertain
   end)
+ track(order)
  if order and (order.status=='refunded' or order.status=='cancelled') then record.order=nil end
  if order and order.status=='complete' then
   pending[order.id]=nil;notify('Замена нанята за 10 000 кат. Новый NPC направляется на службу.')
@@ -277,6 +307,7 @@ local function hire(ctx,nonce)
    if finishHired(tx,p,ctx.building) then return result,nil,false end
    result.pending=true;return result,'HIRED_INITIALIZING',true
   end)
+ track(order)
  if order and order.status=='complete' then notify('Нанят отряд из 3 патрульных за 20 000 кат. Днём — посты у башни, ночью — патруль.')
  elseif order and order.status=='pending' then notify('Отряд оплачен. Ожидается завершение его нативного создания; повторного найма и списания не будет.')
  else failed('hire',reason,order)end
@@ -285,7 +316,7 @@ local function process(request)
  local ctx,why=context(request.chief,request.player)
  if not ctx then report('CONTEXT_UNAVAILABLE',why);notify('Начальник, игрок или башня сейчас недоступны для оформления заказа.');return end
  if not hooksReady or not Store.ready() then notify('Услуга найма недоступна: реестр сохранения ещё не готов. Деньги не списаны.');return end
- local scanned,scanWhy=Roster.scan()
+ local scanned,scanWhy=Roster.scan(true)
  if request.action=='check' then
   local losses=lossSnapshots(ctx)
   local parts={'Подтверждённых погибших без оплаченной замены: '..#losses..'. Замена одного — 10 000 кат.'}
@@ -309,41 +340,51 @@ function M.observe(s,ms)
   end end
  end
 end
-local function recover()
- Roster.scan()
- for _,record in pairs(Store.get().roster)do
-  if record.order then
-   local order=Store.get().orders[record.order]
-   if order and (order.status=='cancelled' or order.status=='refunded') then record.order=nil end
-  end
- end
- for pid,row in pairs(Store.get().patrols)do
+local function recover(task)
+ if task.kind=='scan' then
+  local ok,why=Roster.scan(true)
+  if not ok then nextReconcile=math.min(nextReconcile,Live.clock()+RECOVER_MINUTES);report('SCAN_UNAVAILABLE',why)end
+ elseif task.kind=='patrol' then
+  local pid=task.key
+  local row=Store.get().patrols[pid]
+  if not row or attached[pid] then recoverPatrols[pid]=nil;return end
   local p=Roster.findPlatoon(pid);local b=Roster.building(row.building)
-  if p and b then
-   local order=Store.get().orders[row.order]
-   if order then finishHired(order,p,b)
-   elseif not attached[pid] then
-    local cfg=hiredConfig(pid,row)
-    if driverFor(p,cfg).adopt(b,p) then attached[pid]=true end
+  if not p or not b then return end
+  local order=Store.get().orders[row.order]
+  if order then finishHired(order,p,b)
+  else
+   local cfg=hiredConfig(pid,row)
+   if driverFor(p,cfg).adopt(b,p) then attached[pid]=true;recoverPatrols[pid]=nil end
+  end
+ elseif task.kind=='replace' then
+  local key=task.key;local order=Store.get().orders[key]
+  if not order or order.kind~='replace' or order.status~='pending' then recoverOrders[key]=nil;pending[key]=nil;return end
+  local active=pending[key]
+  if not active and order.pid and order.member then
+   local record=Store.get().roster[order.metadata.deadID]
+   local b=Roster.building(order.metadata.building);local p=Roster.findPlatoon(order.pid)
+   if record and b and p then
+    local plan,receipt=Recruit.restore(record,b,p,order.member,order.metadata.recruitStages)
+    if plan and receipt then active={plan=plan,receipt=receipt};pending[key]=active end
    end
   end
+  if active and finishReplacement(order,active.plan,active.receipt) then pending[key]=nil;notify('Оплаченная замена готова к службе.')end
  end
- for key,order in pairs(Store.get().orders)do
-  if order.kind=='replace' and order.status=='pending' then
-   local active=pending[key]
-   if not active and order.pid and order.member then
-    local record=Store.get().roster[order.metadata.deadID]
-    local b=Roster.building(order.metadata.building);local p=Roster.findPlatoon(order.pid)
-    if record and b and p then
-     local plan,receipt=Recruit.restore(record,b,p,order.member,order.metadata.recruitStages)
-     if plan and receipt then active={plan=plan,receipt=receipt};pending[key]=active end
-    end
-   end
-   if active then
-    if finishReplacement(order,active.plan,active.receipt) then pending[key]=nil;notify('Оплаченная замена готова к службе.')end
-   end
-  end
+end
+local function scheduleRecovery(now)
+ if #recoveryQueue>0 then return end
+ nextScan=now+RECOVER_MINUTES
+ if now>=nextReconcile then
+  nextReconcile=now+RECONCILE_MINUTES
+  recoveryQueue[#recoveryQueue+1]={kind='scan'}
  end
+ -- Only pending receipts and not-yet-attached paid squads enter this queue.
+ -- One task is consumed per frame; completed history is never walked here.
+ local function add(kind,keys)
+  local sorted={};for key in pairs(keys)do sorted[#sorted+1]=key end;table.sort(sorted)
+  for _,key in ipairs(sorted)do recoveryQueue[#recoveryQueue+1]={kind=kind,key=key}end
+ end
+ add('patrol',recoverPatrols);add('replace',recoverOrders)
 end
 function M.request(action,chief,player,selectedID)
  if action~='check' and action~='replace' and action~='hire' then return false,'UNKNOWN_SERVICE'end
@@ -355,18 +396,28 @@ function M.request(action,chief,player,selectedID)
 end
 function M.tick()
  frames=frames+1
- if #queue>0 then local request=table.remove(queue,1);local ok,err=pcall(process,request);if not ok then report('REQUEST_ERROR',err);notify('Заказ требует проверки. Повторный призыв автоматически не выполняется.')end end
- if not Store.ready() or frames%60~=0 then return end
- local now=Live.clock()
- if now<nextScan-10 then nextScan=now end
- if now>=nextScan then
-  nextScan=now+10
-  local ok,err=pcall(recover);if not ok then report('RECOVER_ERROR',err)end
+ indexWork()
+ local processed=false
+ if #queue>0 then
+  processed=true
+  local request=table.remove(queue,1);local ok,err=pcall(process,request)
+  if not ok then report('REQUEST_ERROR',err);notify('Заказ требует проверки. Повторный призыв автоматически не выполняется.')end
+ end
+ if not Store.ready() then return end
+ if frames%60==0 then
+  local now=Live.clock()
+  if now<nextScan-RECOVER_MINUTES then nextScan=now;nextReconcile=now;recoveryQueue={}end
+  if now>=nextScan then scheduleRecovery(now)end
+ end
+ if not processed and #recoveryQueue>0 then
+  local task=table.remove(recoveryQueue,1)
+  local ok,err=pcall(recover,task);if not ok then report('RECOVER_ERROR',err)end
  end
 end
 function M.resetSession()
  for _,driver in pairs(drivers)do pcall(driver.resetSession)end
- queue={};drivers={};pending={};attached={};dialogueStatus={};frames=0;nextScan=0;epoch=epoch+1;sequence=0;loadedSeen=false
+ queue={};drivers={};pending={};attached={};dialogueStatus={};frames=0;nextScan=0;nextReconcile=0;epoch=epoch+1;sequence=0;loadedSeen=false
+ indexed=false;recoverOrders={};recoverPatrols={};recoveryQueue={}
  Roster.reset();Dialogue.resetSession();Store.reset()
 end
 function M.start()

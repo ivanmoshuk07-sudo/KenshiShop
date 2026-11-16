@@ -13,9 +13,9 @@ local function hand(id,root)
 end
 local s,ms,b,calls,world,inside,active,blocked,newPriority,serial
 local function fixture(role,shop,n)
- Nodes.resetSession();logs={};calls={jobs=0,rethinks=0,typed=0,opaque=0,public=0,inserts=0};inside=true;active=268;blocked=false;newPriority=2;serial=0
+ Nodes.resetSession();logs={};calls={jobs=0,rethinks=0,typed=0,opaque=0,public=0,inserts=0,physical=0,root=0};inside=true;active=268;blocked=false;newPriority=2;serial=0
  local container={selfType=1};local origin={x=100,y=10,z=200};local q={w=math.sqrt(0.5),x=0,y=math.sqrt(0.5),z=0}
- b={getRootNode=function()return 'physical-1'end,isPhysical=function()return true end,getScale=function()return 0.25 end,
+ b={getRootNode=function()calls.root=calls.root+1;return 'physical-1'end,isPhysical=function()calls.physical=calls.physical+1;return true end,getScale=function()return 0.25 end,
  getTown=function()return {withinBordersRange=function()return true end}end,
  getPosition=function()return origin end,getOrientation=function()return q end,getFaction=function()return 'npc-faction'end,
  getDoor=function()return {getDoorPosOutside_extraFarOut=function(_,mult)return {x=101,y=10,z=200+5*mult}end}end}
@@ -289,5 +289,38 @@ test('a replacement patrol member reuses its predecessor slot while survivors ke
  s.now=730;Duty.tick(s,{ms[2],ms[3],ms[4]})
  assert(s.postDuty.patrolSlots[ms[1].key]==nil and s.postDuty.patrolSlots[ms[4].key]==oldSlot)
  assert(s.postDuty.patrolSlots[ms[2].key]==survivorSlot and calls.jobs==4)
+end)
+test('settled posts sleep until readback or rotation with only a ten-minute physical audit',function()
+ fixture();Duty.tick(s,ms);s.now=722;Duty.tick(s,ms)
+ local physical,roots=calls.physical,calls.root
+ for minute=723,731 do s.now=minute;Duty.tick(s,ms)end
+ assert(calls.physical==physical and calls.root==roots and calls.rethinks==2)
+ s.now=732;Duty.tick(s,ms)
+ assert(calls.physical==physical+1 and calls.root==roots+1 and calls.rethinks==2)
+ for minute=733,749 do s.now=minute;Duty.tick(s,ms)end
+ assert(calls.rethinks==2)
+ s.now=750;Duty.tick(s,ms);assert(calls.rethinks==4)
+end)
+test('native patrol shift waits for its deadline without polling each member',function()
+ fixture('patrol','police',3);Duty.tick(s,ms)
+ local physical,roots=calls.physical,calls.root
+ for _,m in ipairs(ms)do m.char.getOrdersReciever=function()error('settled patrol was polled')end end
+ for minute=721,739 do s.now=minute;Duty.tick(s,ms)end
+ assert(calls.physical==physical+1 and calls.root==roots+1 and calls.rethinks==0)
+end)
+test('clock rollback recalculates deadlines and does not strand a guard rotation',function()
+ fixture();Duty.tick(s,ms);s.now=722;Duty.tick(s,ms)
+ s.now=700;Duty.tick(s,ms)
+ assert(calls.rethinks==4 and s.postDuty.members[ms[1].key].nextAt==730)
+ s.now=702;Duty.tick(s,ms);s.now=729;Duty.tick(s,ms);assert(calls.rethinks==4)
+ s.now=730;Duty.tick(s,ms);assert(calls.rethinks==6)
+end)
+test('physical reload is audited and wakes settled posts before the next shift',function()
+ fixture('chief','police',1);Duty.tick(s,ms);s.now=722;Duty.tick(s,ms)
+ b.isPhysical=function()return false end;s.now=732;Duty.tick(s,ms)
+ assert(s.postDuty.physical==nil and calls.rethinks==1)
+ b.isPhysical=function()return true end;b.getRootNode=function()return 'physical-2'end
+ s.now=733;Duty.tick(s,ms)
+ assert(s.postDuty.physical=='physical-2' and calls.rethinks==2 and s.postDuty.members[ms[1].key].mode=='DAY')
 end)
 print('Native post/shift API tests passed: '..count..'; game AI execution is not simulated')

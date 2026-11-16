@@ -53,7 +53,7 @@ end
 local function inspectMembers(world,p,ap,rows,cfg,restore)
  local size=Live.call(ap,'getSquadSize')
  assert(type(size)=='number' and size>=0 and size%1==0,'PLATOON_COUNT_UNAVAILABLE')
- local members,why=Transport.members(world,p,cfg.count)
+ local members,why=Transport.members(world,p,cfg.count,true)
  assert(members and not why and #members==size,'PLATOON_SCAN_INCOMPLETE '..tostring(why))
  local dead={}
  for _,m in ipairs(members)do
@@ -203,7 +203,7 @@ function M.restore(record,building,platoon,newMemberID,stages)
  if type(newMemberID)~='string' or newMemberID=='' then return nil,'RESTORE_MEMBER_INVALID'end
  local plan,why=prepare(record,building,platoon,newMemberID)
  if not plan then return nil,why end
- local members,scanWhy=Transport.members(plan.world,platoon,plan.cfg.count)
+ local members,scanWhy=Transport.members(plan.world,platoon,plan.cfg.count,true)
  if not members or scanWhy then return nil,'RESTORE_MEMBER_SCAN '..tostring(scanWhy)end
  local c
  for _,m in ipairs(members)do if m.key==newMemberID then c=m.char;break end end
