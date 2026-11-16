@@ -3,12 +3,14 @@ local Registry=require('Core.Registry')
 local Log=require('Diagnostics')
 local Construction=require('Construction')
 local Ownership=require('Core.Ownership.Registry')
-local M={version='1.0-beta.2'}
+local M={version='1.0-beta.3'}
 local started=false
 local npcLoadedLogged={}
 function M.start()
  if started then return end
  started=true
+ local serviceOK,serviceStatus=pcall(function()return require('Core.Police.Services').start()end)
+ if not serviceOK or serviceStatus~=true then Log.error('NPC_CHIEF_SERVICE_START '..tostring(serviceStatus))end
  Events.on('Building::_NV_notifyConstructionComplete',function(building)
   local ok,errorText=pcall(function()
    local shop=Registry.byBuilding(building)

@@ -16,9 +16,11 @@ local function fixture(role,shop,n)
  Nodes.resetSession();logs={};calls={jobs=0,rethinks=0,typed=0,opaque=0,public=0,inserts=0};inside=true;active=268;blocked=false;newPriority=2;serial=0
  local container={selfType=1};local origin={x=100,y=10,z=200};local q={w=math.sqrt(0.5),x=0,y=math.sqrt(0.5),z=0}
  b={getRootNode=function()return 'physical-1'end,isPhysical=function()return true end,getScale=function()return 0.25 end,
+ getTown=function()return {withinBordersRange=function()return true end}end,
  getPosition=function()return origin end,getOrientation=function()return q end,getFaction=function()return 'npc-faction'end,
  getDoor=function()return {getDoorPosOutside_extraFarOut=function(_,mult)return {x=101,y=10,z=200+5*mult}end}end}
  world={gamedata={getData=function(_,id,kind)assert(kind==0);return {stringID=id,bdata={['is node']=true}}end},theFactory={}}
+ world.navmesh={getPositionValid=function()return true end}
  function getGameWorld()return world end
  function world.theFactory:createLocationNode()calls.opaque=calls.opaque+1;return {}end
  function world.theFactory:createBound(data,pos,home,owner,rot)
@@ -239,5 +241,53 @@ test('carrying and bed continuation defer only that patrol member, then complete
  Duty.tick(s,ms);assert(calls.jobs==2)
  carry=false;active=106;Duty.tick(s,ms);assert(calls.jobs==2)
  active=36;Duty.tick(s,ms);assert(calls.jobs==3)
+end)
+test('hired patrol stands by the tower during the day and patrols natively at night',function()
+ fixture('patrol','police',3);s.cfg.patrolNight=true;s.cfg.streetSlotBase=3;active=36
+ Duty.tick(s,ms);assert(calls.jobs==3 and calls.rethinks==3)
+ for _,m in ipairs(ms)do
+  local r=s.postDuty.members[m.key];assert(r.mode=='DAY' and r.node.outside and r.node.floor==0)
+  assert(math.abs(r.node.base:getPosition().z-217.5)<0.0001)
+ end
+ for i=1,50 do s.now=720+i;Duty.tick(s,ms)end;assert(calls.jobs==3 and calls.rethinks==3)
+ active=51;s.now=1380;Duty.tick(s,ms)
+ for _,m in ipairs(ms)do assert(not select(2,Jobs.find(m.char)))end
+ assert(calls.jobs==3 and calls.rethinks==6)
+ for i=1,50 do s.now=1380+i;Duty.tick(s,ms)end;assert(calls.jobs==3 and calls.rethinks==6)
+ s.now=1800;active=141;Duty.tick(s,ms);assert(calls.jobs==6 and calls.rethinks==9)
+end)
+test('two hired squads use separate post rows without claiming each other or original slots',function()
+ fixture('patrol','police',6);s.cfg.count=3;s.cfg.patrolNight=true;s.cfg.streetSlotBase=3
+ local first={ms[1],ms[2],ms[3]};local second={ms[4],ms[5],ms[6]}
+ Duty.tick(s,first)
+ local other={key=s.key,building=b,cfg={role='patrol',shop='police',count=3,patrolNight=true,streetSlotBase=6},work={done=true},now=s.now}
+ Duty.tick(other,second);assert(calls.jobs==6)
+ local locations={}
+ for _,group in ipairs({{s,first},{other,second}})do
+  for _,m in ipairs(group[2])do
+   local p=group[1].postDuty.members[m.key].node.base:getPosition()
+   local k=string.format('%.3f:%.3f',p.x,p.z);assert(not locations[k]);locations[k]=true
+  end
+ end
+ for slot=1,3 do assert(Nodes.available(s,1,slot,'original'))end
+end)
+test('new hired posts reject invalid navigation and locations outside the city before creating a node',function()
+ fixture('patrol','police',3);assert(Nodes.ensure(s,b));local before=calls.typed
+ local index=Duty.candidates('police','patrol',0)[1]
+ world.navmesh.getPositionValid=function()return false end
+ local node,why=Nodes.target(s,b,ms,index,4)
+ assert(not node and why:find('HIRED_POST_NAVMESH_INVALID',1,true) and calls.typed==before and calls.jobs==0)
+ world.navmesh.getPositionValid=function()return true end
+ b.getTown=function()return {withinBordersRange=function()return false end}end
+ node,why=Nodes.target(s,b,ms,index,5)
+ assert(not node and why:find('HIRED_POST_OUTSIDE_TOWN',1,true) and calls.typed==before and calls.jobs==0)
+end)
+test('a replacement patrol member reuses its predecessor slot while survivors keep theirs',function()
+ fixture('patrol','police',4);s.cfg.count=3;s.cfg.patrolNight=true;s.cfg.streetSlotBase=3
+ local old={ms[1],ms[2],ms[3]};Duty.tick(s,old)
+ local oldSlot=s.postDuty.patrolSlots[ms[1].key];local survivorSlot=s.postDuty.patrolSlots[ms[2].key]
+ s.now=730;Duty.tick(s,{ms[2],ms[3],ms[4]})
+ assert(s.postDuty.patrolSlots[ms[1].key]==nil and s.postDuty.patrolSlots[ms[4].key]==oldSlot)
+ assert(s.postDuty.patrolSlots[ms[2].key]==survivorSlot and calls.jobs==4)
 end)
 print('Native post/shift API tests passed: '..count..'; game AI execution is not simulated')

@@ -83,6 +83,17 @@ local function squadMembers(s)
  end
  return ms,ap,nil
 end
+local function invalidateRoster(s,reason)
+ local r=s.work
+ if r then
+  r.done=false;r.homeDone=false;r.rosterDirty=true;r.tries=0;r.busyLogged=nil
+  -- RoleAI will reopen its installed cache only for the current KS package;
+  -- a later native contract/emergency package must remain protected.
+ end
+ s.nextCheck=0
+ emit(s,'ROSTER_CHANGED','reason='..tostring(reason)..' survivor_setup_preserved=true',
+  'roster_'..tostring(s.rosterFingerprint)..'_'..tostring(reason))
+end
 -- Alpha.74 BAR GUARDS ONLY: large interiors extend beyond the 26-unit
 -- building-center radius. The engine's RootObject.isInsideBuilding is a
 -- native hand pointing at the ACTUAL containing building. Compare its stable
@@ -141,10 +152,12 @@ local function arrived(s,ms,b)
  if not s.arrivalReported then
   s.arrivalReported=true
   emit(s,'GROUP_ARRIVED','all='..#ms..'/'..s.cfg.count..' checked; delivery_complete; native_role_handoff')
-  local ok,err=pcall(function()
-   require('Core.Ownership.Registry').onArrived(s.cfg.shop,s.cfg.role,b,s.platoon)
-  end)
-  if not ok then Log.error('OWN_ARRIVAL_DISPATCH '..s.cfg.shop..' '..tostring(err)) end
+  if not s.cfg.serviceHired then
+   local ok,err=pcall(function()
+    require('Core.Ownership.Registry').onArrived(s.cfg.shop,s.cfg.role,b,s.platoon)
+   end)
+   if not ok then Log.error('OWN_ARRIVAL_DISPATCH '..s.cfg.shop..' '..tostring(err)) end
+  end
  end
  -- Delivery ends. Native goals take over; never reissue a destination here.
  supplyAudit(s,ms,s.now)
@@ -419,7 +432,9 @@ function M.new(cfg)
    if ok and p then
     s.platoon=p;s.phase='WAIT_ACTIVE';s.nextCheck=0
     emit(s,'SAVED_FOUND','deferred existing_platoon='..tostring(Live.call(p,'getPlatoonStringID'))..' no_respawn','saved_deferred')
-    pcall(function() require('Core.Ownership.Registry').onRestored(cfg.shop,cfg.role,b,p) end)
+    if not cfg.serviceHired then
+     pcall(function() require('Core.Ownership.Registry').onRestored(cfg.shop,cfg.role,b,p) end)
+    end
    elseif ok and why and tostring(why):find('^AMBIGUOUS') then
     s.phase='BLOCKED_AMBIGUOUS';s.nextCheck=now+AUDIT_MINUTES
     emit(s,'RESUME_BLOCKED','multiple_saved_squads; no_spawn_no_order','ambiguous')
@@ -436,6 +451,15 @@ function M.new(cfg)
   -- Register before delivery/work safety gates, including unconscious or
   -- carrying NPCs. Native lifetime/race hooks remove stale registrations.
   NoSever.tick(s,ms)
+  local services=rawget(_G,'KenshiShopPoliceServices')
+  if type(services)=='table' and type(services.observe)=='function' then
+   local ok,why=pcall(services.observe,s,ms)
+   if not ok then emit(s,'SERVICE_OBSERVER_FAILED',tostring(why),'service_observer_failed')end
+  end
+  local keys={};for _,m in ipairs(ms)do keys[#keys+1]=m.key end;table.sort(keys)
+  local fingerprint=table.concat(keys,'|')
+  if s.rosterFingerprint and s.rosterFingerprint~=fingerprint then invalidateRoster(s,'MEMBER_SET')end
+  s.rosterFingerprint=fingerprint
   -- A saved role package proves delivery already ended; a patrol/medic may be away.
   if s.saved and (s.phase=='WAIT_ACTIVE' or s.phase=='WAIT_BUILDING') then
    local lead=Live.call(ap,'getSquadLeader')
@@ -520,6 +544,7 @@ function M.new(cfg)
   return s
  end
  function driver.start(b)
+  if cfg.serviceHired then return false,'HIRED_REQUIRES_PAID_SERVICE' end
   local key=b:getHandle():toString()
   if cfg.role=='guard' then
    -- Safe migration boundary: legacy saves may still contain trader+2guards in one platoon.
@@ -613,11 +638,48 @@ function M.new(cfg)
    return false,'WAIT_SAVED_PLATOON '..tostring(reason)
   end
   newState(b,p,true)
-  local signaled,notifyError=pcall(function()
-   require('Core.Ownership.Registry').onRestored(cfg.shop,cfg.role,b,p)
-  end)
-  if not signaled then Log.error('OWN_RESTORED_DISPATCH '..cfg.shop..' '..tostring(notifyError)) end
+  if not cfg.serviceHired then
+   local signaled,notifyError=pcall(function()
+    require('Core.Ownership.Registry').onRestored(cfg.shop,cfg.role,b,p)
+   end)
+   if not signaled then Log.error('OWN_RESTORED_DISPATCH '..cfg.shop..' '..tostring(notifyError)) end
+  end
   return true,'SAVED_MONITOR_ATTACHED '..tostring(reason)
+ end
+ function driver.adopt(b,p,options)
+  -- Payment/spawn belongs to the chief service. Adopt only the actual native
+  -- platoon it produced; this path never creates or replaces living members.
+  if not b or Live.call(b,'isValid')~=true or not p then return false,'ADOPT_ARGUMENTS_INVALID' end
+  local id=Live.call(p,'getPlatoonStringID')
+  if not id or id=='' then return false,'ADOPT_PLATOON_ID_MISSING' end
+  if cfg.existingID and tostring(id)~=tostring(cfg.existingID) then return false,'ADOPT_ID_MISMATCH' end
+  local good,template=pcall(function()return p.squadTemplate.stringID end)
+  if not good or template~=cfg.template then return false,'ADOPT_TEMPLATE_MISMATCH' end
+  local f=Live.call(p,'getFaction');local data=Live.call(f,'getData')
+  local ok,faction=pcall(function()return data.stringID end)
+  if not ok or faction~=cfg.faction then return false,'ADOPT_FACTION_MISMATCH' end
+  options=type(options)=='table' and options or {}
+  local function seed(s)
+   if options.work and not s.work then s.work=options.work end
+   if options.initializedMember then
+    local ap=Live.call(p,'getActivePlatoon')
+    local leader=Live.call(Live.call(Live.call(ap,'getSquadLeader'),'getHandle'),'toString')
+    s.work=s.work or {leader=leader,tries=0,setup={}}
+    s.work.setup=s.work.setup or {};s.work.setup[options.initializedMember]=true
+   end
+  end
+  local key=b:getHandle():toString();local old=states[key]
+  if old and Live.call(old.platoon,'getPlatoonStringID')==id then
+   old.platoon=p;old.handle=b:getHandle();old.building=b
+   invalidateRoster(old,'PAID_REPLACEMENT')
+   seed(old)
+   if not old.hook then attach(old)end
+   return true,'EXISTING_MONITOR_UPDATED '..id
+  end
+  if old then stop(old)end
+  local next=newState(b,p,not options.fresh)
+  seed(next)
+  return next.hook~=nil,'NATIVE_PLATOON_ADOPTED '..id
  end
  function driver.status(b)
   local s=states[b:getHandle():toString()]

@@ -36,6 +36,7 @@ function M.find(building,cfg)
   if not matches(p,key,cfg) then return end
   local id=call(p,'getPlatoonStringID')
   if not id or id=='' then return end
+  if cfg.existingID and tostring(id)~=tostring(cfg.existingID) then return end
   found[tostring(id)]={platoon=p,id=tostring(id),source=source}
  end
  local yes,h=pcall(function()return building.residentSquad end)

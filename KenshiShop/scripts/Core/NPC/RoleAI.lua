@@ -9,6 +9,7 @@ local Origin=require('Core.NPC.OriginTown')
 local Activate=require('Core.NPC.NativeActivation')
 local M={}
 function M.isWorkingPackage(cfg,name)
+ if cfg.role=='patrol' and cfg.patrolNight then return name=='KSB3 Hired night patrol' end
  local _,label=M.package(cfg)
  if not label then return false end
  for _,version in ipairs({'KSB2','KS90','KS87','KS86','KS85','KS84','KS83','KS82'})do
@@ -22,7 +23,10 @@ function M.package(cfg)
   return '10001-KenshiShop.mod','KSB2 Trader 06-23'
  elseif cfg.role=='guard' then return '10002-KenshiShop.mod','KSB2 Indoor guards'
  elseif cfg.role=='chief' then return '10003-KenshiShop.mod','KSB2 Police chief'
- elseif cfg.role=='patrol' then return '10004-KenshiShop.mod','KSB2 Town patrol' end
+ elseif cfg.role=='patrol' then
+  if cfg.patrolNight then return '11001-KenshiShop.mod','KSB3 Hired night patrol' end
+  return '10004-KenshiShop.mod','KSB2 Town patrol'
+ end
 end
 local function say(s,event,why)
  Log.console('NPC_ROLE_'..event..' shop='..s.cfg.shop..' role='..s.cfg.role..' building='..s.key..' '..tostring(why or ''))
@@ -40,9 +44,17 @@ function M.ensure(s,ms)
  local key=h and Live.call(h,'toString')
  if not key then return false end
  local r=s.work
- if not r or r.leader~=key then r={leader=key,tries=0,setup={}};s.work=r end
+ if not r then r={leader=key,tries=0,setup={}};s.work=r
+ elseif r.leader~=key then
+  -- A paid replacement/new leader needs initialization, while surviving
+  -- members keep their completed setup and native activation records.
+  r.leader=key;r.tries=0;r.done=false;r.homeDone=false;r.rosterDirty=true
+ end
  local bb=Live.call(lead,'getBlackboard')
  local current=bb and Live.call(bb,'getCurrentAIPackageName')
+ if r.rosterDirty and (M.isWorkingPackage(s.cfg,current) or current=='KS Medic Robotics Rescue') then
+  r.installed=false;r.homeDone=false;r.done=false;r.tries=0;r.rosterDirty=nil
+ end
  if r.installed and current==label and Service.verify(s,bb) then r.done=true;return true end
  if r.installed and current~=label then
   r.done=false

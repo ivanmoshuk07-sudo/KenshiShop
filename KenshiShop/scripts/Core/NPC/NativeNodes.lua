@@ -122,14 +122,26 @@ function M.target(s,b,ms,index,outside)
    local door=assert(Live.call(b,'getDoor'),'BUILDING_DOOR_UNAVAILABLE')
    local wp=assert(Live.call(door,'getDoorPosOutside_extraFarOut',2),'DOOR_OUTSIDE_UNAVAILABLE')
    if type(outside)=='number' then
-    assert(outside>=1 and outside<=3 and outside%1==0,'PATROL_SLOT_INVALID')
+    assert(outside>=1 and outside<=1024 and outside%1==0,'PATROL_SLOT_INVALID')
     local near=assert(Live.call(door,'getDoorPosOutside_extraFarOut',1),'DOOR_APPROACH_UNAVAILABLE')
     local dx,dz=wp.x-near.x,wp.z-near.z
     local length=math.sqrt(dx*dx+dz*dz);assert(length>0.001,'DOOR_APPROACH_DIRECTION_INVALID')
     -- A row beside the door's actual outward approach. Spacing derives from
     -- the native door offset, so it follows scale and the building rotation.
-    local offset=(outside-2)*length
-    wp={x=wp.x-dz/length*offset,y=wp.y,z=wp.z+dx/length*offset}
+    local column=(outside-1)%3-1
+    local row=math.floor((outside-1)/3)
+    local offset=column*length
+    local forward=row*length*1.5
+    wp={x=wp.x+dx/length*forward-dz/length*offset,y=wp.y,z=wp.z+dz/length*forward+dx/length*offset}
+    if outside>3 then
+     -- Hired squads use separate rows of actual native posts. Refuse an
+     -- invalid location during the caller's pre-payment post preflight.
+     local world=getGameWorld()
+     assert(world and world.navmesh,'HIRED_POST_NAVMESH_UNAVAILABLE')
+     assert(world.navmesh:getPositionValid(wp)==true,'HIRED_POST_NAVMESH_INVALID')
+     local town=assert(Live.call(b,'getTown'),'HIRED_POST_TOWN_UNAVAILABLE')
+     assert(town:withinBordersRange(wp,1.0)==true,'HIRED_POST_OUTSIDE_TOWN')
+    end
    end
    local origin=b:getPosition();local q=b:getOrientation()
    local n=q.w*q.w+q.x*q.x+q.y*q.y+q.z*q.z;assert(n>0,'INVALID_ROTATION')

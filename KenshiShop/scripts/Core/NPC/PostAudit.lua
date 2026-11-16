@@ -13,8 +13,10 @@ function M.probe(s,c,key)
  local row={active=active,priority=priority,home=O.handleID(O.field(Live.call(c,'getStateBroadcast'),'homeBuilding'))}
  if s.cfg.role=='patrol' then
   local hour=type(s.now)=='number' and s.now/60%24
-  row.expected=hour and (hour<6 or hour>=23) and 51 or (key==s.work.leader and 36 or 141)
-  row.result=row.expected==51 and 'PATROL_NIGHT_POST' or 'NATIVE_PATROL_OR_FOLLOW';return row
+  local day=hour and hour>=6 and hour<23
+  local patrolling=hour~=nil and ((s.cfg.patrolNight and not day) or (not s.cfg.patrolNight and day))
+  row.expected=patrolling and (key==s.work.leader and 36 or 141) or 51
+  row.result=row.expected==51 and (s.cfg.patrolNight and 'PATROL_DAY_POST' or 'PATROL_NIGHT_POST') or 'NATIVE_PATROL_OR_FOLLOW';return row
  end
  row.expected=({trader=20,guard=268,chief=38})[s.cfg.role]
  local held,why=Live.halted(c)

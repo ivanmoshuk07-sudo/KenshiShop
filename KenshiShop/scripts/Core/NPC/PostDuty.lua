@@ -50,6 +50,7 @@ function M.tick(s,ms)
  if role=='patrol' and s.cfg.shop~='police' then return end
  if Live.call(s.building,'isPhysical')~=true then return end
  local day=M.day(s.now)
+ local patrolActive=role=='patrol' and ((s.cfg.patrolNight and not day) or (not s.cfg.patrolNight and day))
  if role=='trader' and (s.cfg.shop=='bar' or s.cfg.shop=='robotics') then return end
  local state=s.postDuty or {members={},floorByMember={},patrolSlots={}};s.postDuty=state
  state.patrolSlots=state.patrolSlots or {}
@@ -62,6 +63,15 @@ function M.tick(s,ms)
   for _,r in pairs(state.members)do r.nextAt=s.now end
  end
  state.lastNow=s.now
+ if role=='patrol' then
+  local present={};for _,m in ipairs(ms)do present[m.key]=true end
+  for key in pairs(state.patrolSlots)do
+   if not present[key]then
+    state.patrolSlots[key]=nil
+    Nodes.claim(s,nil,false,{key=key})
+   end
+  end
+ end
  if role=='trader' and state.open~=day then
   -- This is the native flag read by Building.isPublic/isAShop, not a lock
   -- order on the player's door. Stock and furniture are never modified.
@@ -98,18 +108,19 @@ function M.tick(s,ms)
   if due and r.tries<3 then
    local safe,why=Jobs.safe(m.char)
    if not safe then report(s,r,'DEFER',why)
-   elseif (role=='trader' or role=='patrol') and day then
+   elseif (role=='trader' and day) or patrolActive then
     local ok,err=Jobs.clear(m.char)
     if ok then
      if r.node then Nodes.claim(s,nil,false,m)end
      r.node=nil;r.mode=mode;r.tries=0
-     report(s,r,role=='patrol' and 'NATIVE_PATROL_DAY' or 'NATIVE_SHOPKEEPER',role=='patrol' and 'leader=36 followers=141 hours=06_23' or 'task=20')
+     report(s,r,role=='patrol' and (s.cfg.patrolNight and 'NATIVE_PATROL_NIGHT' or 'NATIVE_PATROL_DAY') or 'NATIVE_SHOPKEEPER',
+      role=='patrol' and ('leader=36 followers=141 hours='..(s.cfg.patrolNight and '23_06' or '06_23')) or 'task=20')
     else report(s,r,'DEFER',err)end
    else
     local list=M.candidates(s.cfg.shop,role,floor)
     local nextIndex=r.index%math.max(1,#list)+1
     local outside=role=='chief' and day
-    if role=='patrol' then outside=state.patrolSlots[m.key] end
+    if role=='patrol' then outside=(s.cfg.streetSlotBase or 0)+(state.patrolSlots[m.key] or 0) end
     local index
     for offset=0,#list-1 do
      local candidate=(nextIndex+offset-1)%#list+1
