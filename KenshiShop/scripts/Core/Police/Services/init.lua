@@ -49,7 +49,62 @@ local function context(chief,player)
   or Live.call(Live.call(town,'getFaction'),'isThePlayer')~=true then return nil,'CHIEF_TOWER_UNAVAILABLE'end
  local wallet=field(Live.call(player,'getFaction'),'factionOwnerships')
  if not wallet or Live.call(wallet,'getMoney')~=Live.call(player,'getMoney') then return nil,'PLAYER_WALLET_UNVERIFIED'end
- return {chief=chief,player=player,building=building,key=id(building),town=id(town),wallet=wallet}
+ local key,townID=id(building),id(town)
+ if type(key)~='string' or key=='' or type(townID)~='string' or townID=='' then return nil,'CHIEF_TOWN_UNAVAILABLE'end
+ return {chief=chief,player=player,building=building,key=key,town=townID,wallet=wallet}
+end
+local roleNames={trader='Торговец',guard='Охранник',chief='Начальник охраны',patrol='Патрульный'}
+local businessNames={bar='Бар',engineering='Мастерская',armour='Магазин брони',weapons='Оружейная',robotics='Магазин робототехники',police='Охрана города'}
+local function replacementClaimed(selectedID)
+ for _,order in pairs(Store.get().orders)do
+  if type(order)=='table' and order.kind=='replace' and order.subject=='replace:'..selectedID
+   and order.status~='cancelled' and order.status~='refunded' then return true end
+ end
+ return false
+end
+local function selectedLoss(ctx,selectedID)
+ if type(selectedID)~='string' or selectedID=='' then return nil,'LOSS_SELECTION_REQUIRED'end
+ local record=Store.get().roster[selectedID]
+ if type(record)~='table' or record.id~=selectedID then return nil,'LOSS_UNAVAILABLE'end
+ if record.town~=ctx.town then return nil,'LOSS_TOWN_MISMATCH'end
+ if record.dead~=true or record.order or record.replacedBy or replacementClaimed(selectedID) then return nil,'LOSS_ALREADY_CLAIMED_OR_UNCONFIRMED'end
+ local cfg=Config.copy(record.squadTemplate)
+ if not cfg then return nil,'LOSS_TEMPLATE_UNKNOWN'end
+ return record,cfg
+end
+local function lossSnapshots(ctx)
+ local ids={}
+ for key in pairs(Store.get().roster)do
+  if type(key)=='string' and selectedLoss(ctx,key) then ids[#ids+1]=key end
+ end
+ table.sort(ids)
+ local rows={}
+ for number,key in ipairs(ids)do
+  local record,cfg=selectedLoss(ctx,key)
+  local role=roleNames[cfg.role] or 'Сотрудник'
+  local name=type(record.name)=='string' and record.name~='' and record.name~=key and record.name or role
+  local business=businessNames[cfg.shop] or 'Место службы'
+  local floor
+  if cfg.role=='guard' then
+   if type(record.floor)=='number' and record.floor>=0 and record.floor%1==0 then floor=record.floor+1
+   elseif type(record.slot)=='number' and record.slot>=1 and record.slot%1==0 then floor=record.slot
+   else floor=tonumber(name:match('%((%d+) этаж%)'))end
+  end
+  local label=tostring(number)..'. '..name..' — '..business..', '..role
+  if floor then label=label..', '..floor..' этаж'end
+  -- Every value is a scalar snapshot. The numbered label is presentation;
+  -- only the persistent string ID is used to claim a later replacement.
+  rows[#rows+1]={id=key,name=name,label=label,role=cfg.role,shop=cfg.shop,business=business,floor=floor}
+ end
+ return rows
+end
+function M.listLosses(chief,player)
+ local ctx,why=context(chief,player)
+ if not ctx then return nil,why end
+ if not hooksReady or not Store.ready() then return nil,'SERVICE_STORE_NOT_READY'end
+ local scanned,scanWhy=Roster.scan()
+ if not scanned then report('SCAN_UNAVAILABLE',scanWhy);return nil,scanWhy or 'SCAN_UNAVAILABLE'end
+ return lossSnapshots(ctx)
 end
 local function hiredConfig(pid,row)
  local cfg=Config.copy(Config.hired);cfg.existingID=pid;cfg.streetSlotBase=row.base
@@ -160,9 +215,12 @@ local function pendingUnknown(town)
  end
  return false
 end
-local function replace(ctx)
- local losses=Roster.losses(ctx.town);local record=losses[1]
- if not record then notify('Подтверждённых погибших, для которых можно нанять замену, нет.');return end
+local function replace(ctx,selectedID)
+ local record,selectionWhy=selectedLoss(ctx,selectedID)
+ if not record then
+  report('REPLACEMENT_SELECTION_UNAVAILABLE',selectionWhy)
+  notify('Выбранный погибший больше недоступен для замены. Деньги не списаны.');return
+ end
  local b=Roster.building(record.building)
  local p,lookup=Roster.findPlatoon(record.pid)
  if not p and lookup~='TRUE_NOT_FOUND' then notify('Прежний отряд пока недоступен для проверки. Оплата не списана.');return end
@@ -229,15 +287,15 @@ local function process(request)
  if not hooksReady or not Store.ready() then notify('Услуга найма недоступна: реестр сохранения ещё не готов. Деньги не списаны.');return end
  local scanned,scanWhy=Roster.scan()
  if request.action=='check' then
-  local losses=Roster.losses(ctx.town)
+  local losses=lossSnapshots(ctx)
   local parts={'Подтверждённых погибших без оплаченной замены: '..#losses..'. Замена одного — 10 000 кат.'}
-  for i=1,math.min(12,#losses)do parts[#parts+1]=losses[i].name or losses[i].id end
+  for i=1,math.min(12,#losses)do parts[#parts+1]=losses[i].label end
   if not scanned then parts[#parts+1]='Не все отряды доступны для проверки; пропавших не считаю погибшими.'end
   notify(table.concat(parts,'\n'));return
  end
  if not scanned then report('SCAN_UNAVAILABLE',scanWhy);notify('Проверка состава пока не завершена. Деньги не списаны.');return end
  if pendingUnknown(ctx.town) then notify('Сначала требуется завершить проверку предыдущего оплаченного заказа. Повторной оплаты не будет.');return end
- if request.action=='replace' then replace(ctx) elseif request.action=='hire' then hire(ctx,request.nonce)end
+ if request.action=='replace' then replace(ctx,request.selectedID) elseif request.action=='hire' then hire(ctx,request.nonce)end
 end
 function M.observe(s,ms)
  if not Store.ready() then return end
@@ -287,11 +345,12 @@ local function recover()
   end
  end
 end
-function M.request(action,chief,player)
+function M.request(action,chief,player,selectedID)
  if action~='check' and action~='replace' and action~='hire' then return false,'UNKNOWN_SERVICE'end
+ if action=='replace' and (type(selectedID)~='string' or selectedID=='') then return false,'LOSS_SELECTION_REQUIRED'end
  if #queue>=8 then return false,'SERVICE_QUEUE_FULL'end
  sequence=sequence+1
- queue[#queue+1]={action=action,chief=chief,player=player,nonce=tostring(epoch)..':'..sequence}
+ queue[#queue+1]={action=action,chief=chief,player=player,selectedID=selectedID,nonce=tostring(epoch)..':'..sequence}
  return true
 end
 function M.tick()

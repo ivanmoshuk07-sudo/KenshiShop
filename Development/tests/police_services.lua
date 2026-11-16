@@ -11,6 +11,7 @@ end
 package.loaded.Diagnostics={console=function(s)logs[#logs+1]=s end,error=function(s)error(s)end}
 local clock,bank,spawns,adopts,finishes,postChecks,scans=100,100000,0,0,0,0,0
 local blockPosts,waitFinish,unknownMember,scanAvailable=false,false,false,true
+local lastSpawnRecord,lastSpawnTemplate
 local native,buildings={},{}
 local function hand(key,object)
  return {toString=function()return key end,isNull=function()return key==nil end,
@@ -22,9 +23,9 @@ local wallet={getMoney=function()return bank end,
  addMoney=function(_,n)bank=bank+n end}
 local playerFaction={isThePlayer=function()return true end,factionOwnerships=wallet}
 local town={getHandle=function()return hand('city')end,getFaction=function()return playerFaction end}
-local function building(key,sid)
+local function building(key,sid,homeTown)
  local b={getHandle=function()return hand(key,buildings[key])end,getGameData=function()return {stringID=sid}end,
- isValid=function()return true end,getFaction=function()return npcFaction end,getTown=function()return town end}
+ isValid=function()return true end,getFaction=function()return npcFaction end,getTown=function()return homeTown or town end}
  function b:setResidentSquad(p)self.residentSquad={getPlatoon=function()return p end}end
  buildings[key]=b;return b
 end
@@ -79,6 +80,7 @@ package.loaded['Core.NPC.Transport']={preflight=function()return {}end,
 local Recruit={}
 function Recruit.prepare(record,b,p)return {record=record,building=b,platoon=p,cfg=Config.copy(record.squadTemplate)}end
 function Recruit.spawn(plan)
+ lastSpawnRecord=plan.record.id;lastSpawnTemplate=plan.cfg.template
  spawns=spawns+1;local key='new'..spawns;local m=member(key);table.insert(plan.platoon.members,m)
  local receipt={char=m.char,member=unknownMember and nil or key,key=key,pid='original',platoon=plan.platoon,pending=waitFinish,stages={}}
  plan.receipt=receipt;return receipt
@@ -101,22 +103,115 @@ local function fixture()
  Services.resetSession();native={original=original};original.members={member('survivor')}
  tower:setResidentSquad(original)
  clock=100;bank=100000;spawns=0;adopts=0;finishes=0;postChecks=0;logs={};notices={}
+ lastSpawnRecord=nil;lastSpawnTemplate=nil
  blockPosts=false;waitFinish=false;unknownMember=false;scanAvailable=true
  emit('PlayerInterface::loadFromSerialise',{},data())
  Store.get().roster.dead={id='dead',pid='original',building='shop',town='city',squadTemplate='7802-KenshiShop.mod',
   charTemplate='7306-KenshiShop.mod',race='7101-KenshiShop.mod',name='KS: Охрана (2 этаж)',dead=true}
 end
+local function loss(key,changes)
+ local row={id=key,pid='original',building='shop',town='city',squadTemplate='7802-KenshiShop.mod',
+  charTemplate='7306-KenshiShop.mod',race='7101-KenshiShop.mod',name='Сотрудник',dead=true}
+ for k,v in pairs(changes or {})do row[k]=v end
+ Store.get().roster[key]=row;return row
+end
 local count=0
 local function test(name,fn)fn();count=count+1;print('PASS '..name)end
-local function click(action)assert(Services.request(action,chief,player));Services.tick()end
+local function click(action,selectedID)assert(Services.request(action,chief,player,selectedID));Services.tick()end
 local function recover()
  clock=clock+11;for i=1,60 do Services.tick()end
 end
 test('checking losses is free and one paid replacement does not recreate a survivor',function()
  fixture();click('check');assert(bank==100000 and spawns==0)
- local survivor=original.members[1];click('replace')
+ local survivor=original.members[1];click('replace','dead')
  assert(bank==90000 and spawns==1 and original.members[1]==survivor and Store.get().roster.dead.replacedBy=='new1')
- click('replace');assert(bank==90000 and spawns==1)
+ click('replace','dead');assert(bank==90000 and spawns==1)
+end)
+test('loss list is free and returns isolated numbered human labels with persistent IDs',function()
+ fixture();Store.get().roster.dead.floor=1
+ loss('opaque-second-8194',{name='KS: Охрана (2 этаж)',floor=1})
+ loss('alive',{dead=false});loss('uncertain',{dead='true'});loss('claimed',{order='pending-order'})
+ loss('replaced',{replacedBy='replacement'});loss('foreign',{town='other-city'})
+ loss('unknown-template',{squadTemplate='not-a-service-template'})
+ local before=scans;local rows=assert(Services.listLosses(chief,player))
+ assert(scans==before+1 and #rows==2 and bank==100000 and spawns==0 and Store.get().seq==0)
+ assert(rows[1].id=='dead' and rows[2].id=='opaque-second-8194' and rows[1].label~=rows[2].label)
+ assert(rows[1].role=='guard' and rows[1].shop=='armour' and rows[1].business=='Магазин брони' and rows[1].floor==2)
+ assert(rows[1].label:find('1. ',1,true)==1 and rows[1].label:find('2 этаж',1,true))
+ for _,row in ipairs(rows)do
+  assert(not row.label:find(row.id,1,true) and getmetatable(row)==nil)
+  for _,value in pairs(row)do assert(type(value)~='table' and type(value)~='userdata' and type(value)~='function')end
+ end
+ rows[2].id='changed';rows[2].name='changed';rows[2].label='changed'
+ assert(Store.get().roster['opaque-second-8194'].id=='opaque-second-8194' and Store.get().roster['opaque-second-8194'].name=='KS: Охрана (2 этаж)')
+ local again=assert(Services.listLosses(chief,player));assert(again[2].id=='opaque-second-8194' and again[2].label~='changed')
+ Store.get().roster.dead.name=nil;click('check')
+ assert(not notices[#notices]:find('opaque-second-8194',1,true) and not notices[#notices]:find('\ndead',1,true))
+end)
+test('choosing the second loss creates only that role and leaves the first loss available',function()
+ fixture();loss('second',{name='Торговец',squadTemplate='305-KenshiShop.mod',charTemplate='7303-KenshiShop.mod'})
+ local rows=assert(Services.listLosses(chief,player));assert(#rows==2 and rows[2].id=='second' and bank==100000)
+ click('replace',rows[2].id)
+ assert(bank==90000 and spawns==1 and lastSpawnRecord=='second' and lastSpawnTemplate=='305-KenshiShop.mod')
+ assert(Store.get().roster.second.replacedBy=='new1' and not Store.get().roster.dead.replacedBy)
+ assert(Store.get().orders['1'].subject=='replace:second' and Store.get().orders['1'].metadata.deadID=='second')
+ local remaining=assert(Services.listLosses(chief,player));assert(#remaining==1 and remaining[1].id=='dead')
+end)
+test('queued selection keeps its persistent ID when other rows disappear and ordering changes',function()
+ fixture();loss('second')
+ local rows=assert(Services.listLosses(chief,player));local selectedID=rows[2].id
+ assert(Services.request('replace',chief,player,selectedID))
+ Store.get().roster.dead=nil;loss('third')
+ local reordered=assert(Services.listLosses(chief,player));assert(reordered[1].id==selectedID)
+ Services.tick()
+ assert(bank==90000 and spawns==1 and lastSpawnRecord=='second' and Store.get().roster.second.replacedBy=='new1')
+ assert(not Store.get().roster.third.replacedBy)
+end)
+test('missing invalid and stale IDs never choose a different loss',function()
+ fixture();loss('second')
+ for _,value in ipairs({false,42,{},''})do
+  local ok,why=Services.request('replace',chief,player,value)
+  assert(not ok and why=='LOSS_SELECTION_REQUIRED')
+ end
+ local ok,why=Services.request('replace',chief,player);assert(not ok and why=='LOSS_SELECTION_REQUIRED')
+ assert(Services.request('replace',chief,player,'second'));Store.get().roster.second=nil;Services.tick()
+ click('replace','never-existed');assert(bank==100000 and spawns==0 and Store.get().seq==0)
+ assert(not Store.get().roster.dead.replacedBy and notices[#notices]:find('Деньги не списаны',1,true))
+end)
+test('processing rescans and rejects changed or already paid loss records without a charge',function()
+ local changes={{dead=false},{town='other-city'},{order='pending-order'},{replacedBy='somebody'},
+  {squadTemplate='unknown-template'},{id='different-identity'}}
+ for _,change in ipairs(changes)do
+  fixture();assert(Services.request('replace',chief,player,'dead'))
+  for k,v in pairs(change)do Store.get().roster.dead[k]=v end
+  local before=scans;Services.tick();assert(scans==before+1 and bank==100000 and spawns==0 and Store.get().seq==0)
+ end
+ fixture();Store.get().orders.paid={id='paid',kind='replace',subject='replace:dead',status='pending',pid='original',member='already-created',metadata={town='city'}}
+ assert(#assert(Services.listLosses(chief,player))==0)
+ click('replace','dead');assert(bank==100000 and spawns==0 and Store.get().seq==0)
+end)
+test('each chief lists and validates losses only for its own city',function()
+ fixture()
+ local otherTown={getHandle=function()return hand('other-city')end,getFaction=function()return playerFaction end}
+ local otherTower=building('other-tower',Config.tower,otherTown)
+ building('other-shop','102-KenshiShop.mod',otherTown)
+ local otherChief={getGameData=chief.getGameData,getFaction=chief.getFaction,isDead=chief.isDead,
+  getOwnerships=function()return {_homeBuilding=hand('other-tower',otherTower)}end}
+ loss('foreign',{town='other-city',building='other-shop'})
+ local localRows=assert(Services.listLosses(chief,player));local foreignRows=assert(Services.listLosses(otherChief,player))
+ assert(#localRows==1 and localRows[1].id=='dead' and #foreignRows==1 and foreignRows[1].id=='foreign')
+ click('replace',foreignRows[1].id);assert(bank==100000 and spawns==0)
+ assert(Services.request('replace',otherChief,player,localRows[1].id));Services.tick();assert(bank==100000 and spawns==0)
+ assert(Services.request('replace',otherChief,player,foreignRows[1].id));Services.tick()
+ assert(bank==90000 and spawns==1 and lastSpawnRecord=='foreign' and not Store.get().roster.dead.replacedBy)
+end)
+test('loss list requires trusted context and a completed scan and ready save registry',function()
+ fixture();local before=scans
+ assert(Services.listLosses({},player)==nil and Services.listLosses(chief,{})==nil and scans==before)
+ scanAvailable=false;local rows,why=Services.listLosses(chief,player)
+ assert(rows==nil and why=='SCAN_UNAVAILABLE' and bank==100000 and spawns==0 and Store.get().seq==0)
+ Services.resetSession();rows,why=Services.listLosses(chief,player)
+ assert(rows==nil and why=='SERVICE_STORE_NOT_READY' and bank==100000 and spawns==0)
 end)
 test('each extra squad costs once and uses separate three-post rows',function()
  fixture();click('hire');click('hire')
@@ -128,7 +223,7 @@ end)
 test('missing posts funds and incomplete roster checks never charge or allocate',function()
  fixture();blockPosts=true;click('hire');assert(bank==100000 and spawns==0)
  blockPosts=false;bank=19999;click('hire');assert(bank==19999 and spawns==0)
- bank=100000;scanAvailable=false;click('replace');assert(bank==100000 and spawns==0)
+ bank=100000;scanAvailable=false;click('replace','dead');assert(bank==100000 and spawns==0)
 end)
 test('save reload restores hired survivors and permits another genuinely new purchase',function()
  fixture();click('hire');local p=native.hired1;table.remove(p.members,3)
@@ -138,7 +233,7 @@ test('save reload restores hired survivors and permits another genuinely new pur
  click('hire');assert(bank==60000 and spawns==2,'runtime nonce reuse must not match an old paid order')
 end)
 test('pending replacement persists newly learned actor identity before a later stage is ready',function()
- fixture();waitFinish=true;unknownMember=true;click('replace')
+ fixture();waitFinish=true;unknownMember=true;click('replace','dead')
  local order=Store.get().orders['1'];assert(order.status=='pending' and order.member=='new1' and bank==90000)
  local save=data();emit('PlayerInterface::serialise',{},save)
  Services.resetSession();emit('PlayerInterface::loadFromSerialise',{},save)

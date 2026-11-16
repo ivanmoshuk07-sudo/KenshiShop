@@ -36,10 +36,10 @@ jobs:
           lua Development/tests/police_patrol.lua KenshiShop/scripts
           lua Development/tests/police_recruit.lua KenshiShop/scripts
           lua Development/tests/police_services.lua KenshiShop/scripts
-      - name: Validate chief dialogue and preserved gameplay data against beta.2
+      - name: Validate selected casualty dialogue and preserved gameplay data against beta.3
         run: |
-          git show v1.0-beta.2:KenshiShop/KenshiShop.mod > /tmp/kenshishop-beta2.mod
-          python Development/tests/data_beta3.py /tmp/kenshishop-beta2.mod KenshiShop/KenshiShop.mod
+          git show v1.0-beta.3:KenshiShop/KenshiShop.mod > /tmp/kenshishop-beta3.mod
+          python Development/tests/data_beta4.py /tmp/kenshishop-beta3.mod KenshiShop/KenshiShop.mod
       - name: Choose the version
         id: version
         env:

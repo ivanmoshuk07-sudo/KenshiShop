@@ -4,7 +4,7 @@
 local Log = require('Diagnostics')
 local layoutsOK, Layouts = pcall(require, 'Layouts')
 if not layoutsOK then Layouts = {} end
-local API = {version = '1.0-beta.3'}
+local API = {version = '1.0-beta.4'}
 local state = {
     started = false, core = 'not started', coreError = nil,
     tracked = {}, order = {},
@@ -182,7 +182,7 @@ API.help = call('help',function()
   'NPC delivery: 3 tries (1 game minute each), 2-minute wait, one gate rescue, final try',
   'Native NPC work: traders, floor guards, chief and day/night patrol; Medic/Robotics/Rescue',
   'Priority: 3 protection/medicine/robotics; 2 rescue/carry to bed; 1 role work/posts',
-  'Talk to the police chief: confirmed-death replacement 10000 cats; three night patrol NPCs 20000 cats',
+  'Talk to the police chief: choose a confirmed casualty, confirm replacement for 10000 cats; night patrol squad 20000 cats',
   'KS.status()    - module/core status',
   'KS.scan()      - one-shot read-only scan of PLAYER-owned shops',
   'KS.list()      - detected shops',
