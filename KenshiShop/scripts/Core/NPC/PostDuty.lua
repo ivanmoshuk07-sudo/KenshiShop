@@ -73,7 +73,13 @@ function M.tick(s,ms)
    state.physical=nil;state.physicalAt=s.now+1;state.nextWake=s.now+1
    return
   end
-  local physical=tostring(Live.call(s.building,'getRootNode'))
+  local root=Live.call(s.building,'getRootNode')
+  if not root then
+   state.physical=nil;state.physicalAt=s.now+1;state.nextWake=s.now+1
+   return
+  end
+  local physical=tostring(root)
+  Nodes.invalidatePhysical(s,physical)
   if state.physical~=physical then
    for _,r in pairs(state.members)do r.mode=nil;r.prepared=nil;r.node=nil;r.observeAt=nil;r.tries=0 end
    state.open=nil;state.physical=physical;awake=true
@@ -86,15 +92,13 @@ function M.tick(s,ms)
  if rollback then
   for _,r in pairs(state.members)do r.nextAt=s.now end
  end
- if role=='patrol' then
-  local present={};for _,m in ipairs(ms)do present[m.key]=true end
-  for key in pairs(state.patrolSlots)do
-   if not present[key]then
-    state.patrolSlots[key]=nil
-    Nodes.claim(s,nil,false,{key=key})
-   end
+ local present={};for _,m in ipairs(ms)do present[m.key]=true end
+ for key in pairs(state.members)do
+  if not present[key]then
+   state.members[key]=nil;state.floorByMember[key]=nil;state.patrolSlots[key]=nil
   end
  end
+ Nodes.prune(s,ms)
  if role=='trader' and state.open~=day then
   -- This is the native flag read by Building.isPublic/isAShop, not a lock
   -- order on the player's door. Stock and furniture are never modified.

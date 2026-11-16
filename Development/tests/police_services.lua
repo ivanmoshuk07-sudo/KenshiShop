@@ -12,7 +12,7 @@ package.loaded.Diagnostics={console=function(s)logs[#logs+1]=s end,error=functio
 local clock,bank,spawns,adopts,finishes,postChecks,scans,memberReads,lookups=100,100000,0,0,0,0,0,0,0
 local blockPosts,waitFinish,unknownMember,scanAvailable=false,false,false,true
 local lastSpawnRecord,lastSpawnTemplate
-local native,buildings={},{}
+local native,buildings,monitors,stopped={},{},{},{}
 local function hand(key,object)
  return {toString=function()return key end,isNull=function()return key==nil end,
  getBuilding=function()return object end,getCharacter=function()return object end}
@@ -59,9 +59,10 @@ package.loaded['Core.Police.Services.Roster']=Roster
 local menu={start=function(api)menuAPI=api;return true end,attach=function()return true end,resetSession=function()end}
 package.loaded['Core.Police.Services.Dialogue']=menu
 local function driver()
+ local pid
  return {adopt=function(_,p,options)
-  adopts=adopts+1;p.lastOptions=options;return true
- end,resetSession=function()end}
+  adopts=adopts+1;p.lastOptions=options;pid=p:getPlatoonStringID();monitors[pid]=true;return true
+ end,resetSession=function()if pid then monitors[pid]=nil;stopped[pid]=(stopped[pid] or 0)+1 end end}
 end
 package.loaded['Core.NPC.Controller']={new=function()return driver()end}
 for _,cfg in pairs(Config.templates)do if cfg.driver then package.loaded[cfg.driver]=driver()end end
@@ -81,8 +82,14 @@ local Recruit={}
 function Recruit.prepare(record,b,p)return {record=record,building=b,platoon=p,cfg=Config.copy(record.squadTemplate)}end
 function Recruit.spawn(plan)
  lastSpawnRecord=plan.record.id;lastSpawnTemplate=plan.cfg.template
- spawns=spawns+1;local key='new'..spawns;local m=member(key);table.insert(plan.platoon.members,m)
- local receipt={char=m.char,member=unknownMember and nil or key,key=key,pid='original',platoon=plan.platoon,pending=waitFinish,stages={}}
+ spawns=spawns+1;local key='new'..spawns;local m=member(key)
+ local p=plan.platoon
+ if not p then
+  local pid='replacement-'..spawns
+  p={members={},getPlatoonStringID=function()return pid end};native[pid]=p
+ end
+ table.insert(p.members,m)
+ local receipt={char=m.char,member=unknownMember and nil or key,key=key,pid=p:getPlatoonStringID(),platoon=p,pending=waitFinish,stages={}}
  plan.receipt=receipt;return receipt
 end
 function Recruit.finish(plan,r)
@@ -92,7 +99,7 @@ function Recruit.finish(plan,r)
 end
 function Recruit.restore(record,b,p,id,stages)
  local plan=Recruit.prepare(record,b,p)
- local receipt={member=id,key=id,pid='original',platoon=p,stages=stages or {}}
+ local receipt={member=id,key=id,pid=p:getPlatoonStringID(),platoon=p,stages=stages or {}}
  plan.receipt=receipt;return plan,receipt
 end
 package.loaded['Core.Police.Services.Recruit']=Recruit
@@ -100,7 +107,7 @@ local Services=require('Core.Police.Services')
 assert(Services.start())
 local function data()return {sdata={},addString=function(self,key,value)self.sdata[key]=value end}end
 local function fixture()
- Services.resetSession();native={original=original};original.members={member('survivor')}
+ Services.resetSession();native={original=original};original.members={member('survivor')};monitors={};stopped={}
  tower:setResidentSquad(original)
  clock=100;bank=100000;spawns=0;adopts=0;finishes=0;postChecks=0;logs={};notices={}
  lastSpawnRecord=nil;lastSpawnTemplate=nil
@@ -290,5 +297,61 @@ test('load clears transient work and restores only actual pending replacement re
  waitFinish=false;local before=finishes;recover()
  assert(finishes==before+1 and Store.get().orders['1'].status=='complete' and spawns==1 and bank==90000)
  recover();assert(finishes==before+1 and Store.get().orders['history-1000'].status=='complete')
+end)
+local function replaceExtinctHired()
+ fixture();click('hire');local oldPID='hired1'
+ native[oldPID]=nil
+ for i=1,3 do loss('hired-loss-'..i,{pid=oldPID,building='tower',squadTemplate=Config.hired})end
+ click('replace','hired-loss-1')
+ local newPID='replacement-2'
+ assert(Store.get().orders['2'].status=='complete' and Store.get().patrols[newPID])
+ return oldPID,newPID
+end
+test('extinct hired replacements update the paid receipt and stop only the old native owner monitor',function()
+ local oldPID,newPID=replaceExtinctHired()
+ assert(not Store.get().patrols[oldPID] and Store.get().orders['1'].pid==newPID)
+ assert(not monitors[oldPID] and monitors[newPID] and stopped[oldPID]==1)
+ assert(Store.get().roster['hired-loss-2'].pid==newPID and Store.get().roster['hired-loss-3'].pid==newPID)
+ local before=adopts;local save=data();emit('PlayerInterface::serialise',{},save)
+ emit('PlayerInterface::loadFromSerialise',{},save);recover();recover()
+ assert(adopts==before+1 and monitors[newPID] and not monitors[oldPID])
+ assert(Store.get().orders['1'].pid==newPID and Store.get().orders['1'].status=='complete')
+ assert(bank==70000 and spawns==2 and tower.residentSquad:getPlatoon()==original)
+ recover();assert(adopts==before+1 and bank==70000 and spawns==2)
+end)
+test('beta5 migrated patrol saves repair stale hire receipt IDs before recovery without charging again',function()
+ local oldPID,newPID=replaceExtinctHired()
+ -- Recreate the already-published inconsistent ledger, with no legacy row.
+ Store.get().orders['1'].pid=oldPID
+ Store.get().patrols[newPID].pid=oldPID
+ local save=data();emit('PlayerInterface::serialise',{},save)
+ local before=adopts;emit('PlayerInterface::loadFromSerialise',{},save);recover();recover()
+ assert(Store.get().orders['1'].pid==newPID and Store.get().patrols[newPID].pid==newPID)
+ assert(adopts==before+1 and monitors[newPID] and bank==70000 and spawns==2)
+ local repaired=data();emit('PlayerInterface::serialise',{},repaired)
+ emit('PlayerInterface::loadFromSerialise',{},repaired);recover();assert(monitors[newPID])
+ assert(bank==70000 and spawns==2 and Store.get().orders['1'].pid==newPID)
+end)
+test('completed hired patrols survive chief replacement and preserve the new tower resident',function()
+ fixture();click('hire');click('hire')
+ local newChief={getPlatoonStringID=function()return 'new-chief'end}
+ native.original=nil;native['new-chief']=newChief;tower:setResidentSquad(newChief)
+ local before=adopts;local save=data();emit('PlayerInterface::serialise',{},save)
+ emit('PlayerInterface::loadFromSerialise',{},save);recover();recover()
+ assert(adopts==before+2 and monitors.hired1 and monitors.hired2)
+ assert(tower.residentSquad:getPlatoon()==newChief and bank==60000 and spawns==2)
+ assert(Store.get().orders['1'].metadata.residentPID=='original','completed history need not rewrite its creation context')
+ recover();assert(adopts==before+2 and tower.residentSquad:getPlatoon()==newChief)
+end)
+test('completed patrol recovery never overwrites a foreign or temporarily absent tower resident',function()
+ for _,foreign in ipairs({true,false})do
+  fixture();click('hire')
+  local resident=foreign and {getPlatoonStringID=function()return 'foreign-owner'end} or nil
+  tower:setResidentSquad(resident)
+  local before=adopts;local save=data();emit('PlayerInterface::serialise',{},save)
+  emit('PlayerInterface::loadFromSerialise',{},save);recover()
+  assert(adopts==before+1 and monitors.hired1 and tower.residentSquad:getPlatoon()==resident)
+  assert(bank==80000 and spawns==1)
+ end
 end)
 print('Chief service payment/reload integration tests passed: '..count)

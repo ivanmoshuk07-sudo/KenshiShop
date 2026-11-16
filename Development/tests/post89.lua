@@ -7,13 +7,15 @@ local Duty=require('Core.NPC.PostDuty');local Jobs=require('Core.NPC.PostJobs')
 local Nodes=require('Core.NPC.NativeNodes');local Posts=require('Core.NPC.PostData');local Transform=require('Transform')
 local count=0
 local function test(name,fn)fn();count=count+1;print('PASS '..name)end
+local current={}
 local function hand(id,root)
  return {isNull=function()return id==nil end,toString=function()return id end,setNull=function()id=nil end,
+ getCharacter=function()return current[id]end,
  getRootObject=function()return root end,getRootObjectBase=function()return root end}
 end
 local s,ms,b,calls,world,inside,active,blocked,newPriority,serial
 local function fixture(role,shop,n)
- Nodes.resetSession();logs={};calls={jobs=0,rethinks=0,typed=0,opaque=0,public=0,inserts=0,physical=0,root=0};inside=true;active=268;blocked=false;newPriority=2;serial=0
+ Nodes.resetSession();current={};logs={};calls={jobs=0,rethinks=0,typed=0,opaque=0,public=0,inserts=0,physical=0,root=0};inside=true;active=268;blocked=false;newPriority=2;serial=0
  local container={selfType=1};local origin={x=100,y=10,z=200};local q={w=math.sqrt(0.5),x=0,y=math.sqrt(0.5),z=0}
  b={getRootNode=function()calls.root=calls.root+1;return 'physical-1'end,isPhysical=function()calls.physical=calls.physical+1;return true end,getScale=function()return 0.25 end,
  getTown=function()return {withinBordersRange=function()return true end}end,
@@ -46,7 +48,7 @@ local function fixture(role,shop,n)
   end
   function order:addGoal(g)calls.inserts=calls.inserts+1;table.insert(goals[g.priority+1],g)end
   local npcName='guard-'..i
-  local c={getName=function()return npcName end,setName=function(_,name)npcName=name end,getHandle=function()return hand('npc-'..i)end,getOrdersReciever=function()return order end,
+  local c={isValid=function()return true end,getName=function()return npcName end,setName=function(_,name)npcName=name end,getHandle=function()return hand('npc-'..i)end,getOrdersReciever=function()return order end,
    getCarryingObject=function()return hand(nil)end,getAI=function()return {resultsCache={resetAllCaches=function()end}}end,
    reThinkCurrentAIAction=function()calls.rethinks=calls.rethinks+1 end,
    getPosition=function()return origin end,getFloor=function()return 0 end,container=container,
@@ -57,7 +59,7 @@ local function fixture(role,shop,n)
    assert(key==51 and subject:getDataType()==54);calls.jobs=calls.jobs+1
    order:addGoal({key=function()return key end,priority=newPriority,subject=subject:getHandle(),weight=1})
   end
-  ms[#ms+1]={key='npc-'..i,char=c}
+  current['npc-'..i]=c;ms[#ms+1]={key='npc-'..i,char=c}
  end
 end
 test('exact shop boundaries including midnight and the following day',function()
@@ -322,5 +324,115 @@ test('physical reload is audited and wakes settled posts before the next shift',
  b.isPhysical=function()return true end;b.getRootNode=function()return 'physical-2'end
  s.now=733;Duty.tick(s,ms)
  assert(s.postDuty.physical=='physical-2' and calls.rethinks==2 and s.postDuty.members[ms[1].key].mode=='DAY')
+end)
+test('a deleted guard leaves no stale calls or occupied post when its replacement joins',function()
+ fixture('guard','weapons',3);Duty.tick(s,{ms[1],ms[2]})
+ local old=ms[1];local oldNode=s.postDuty.members[old.key].node
+ local survivorNode=s.postDuty.members[ms[2].key].node
+ local stale=0
+ old.char.isDead=function()stale=stale+1;error('DELETED_CHARACTER_POINTER')end
+ old.char.getHandle=function()stale=stale+1;error('DELETED_CHARACTER_POINTER')end
+ current[old.key]=nil
+ ms[3].char:setName('KS: Охрана (1 этаж)')
+ s.now=721;Duty.tick(s,{ms[2],ms[3]})
+ assert(stale==0 and calls.jobs==3)
+ assert(s.postDuty.members[old.key]==nil and s.postDuty.floorByMember[old.key]==nil)
+ assert(s.postDuty.members[ms[3].key].node.handle:toString()==oldNode.handle:toString())
+ assert(s.postDuty.members[ms[2].key].node==survivorNode)
+end)
+test('claim health checks resolve the current character instead of a cached native wrapper',function()
+ fixture('guard','weapons',1);Duty.tick(s,ms)
+ local m=ms[1];local index=Duty.candidates('weapons','guard',0)[1]
+ local stale,reads=0,0
+ m.char.isDead=function()stale=stale+1;error('DELETED_CHARACTER_POINTER')end
+ m.char.getHandle=function()stale=stale+1;error('DELETED_CHARACTER_POINTER')end
+ local dead=false
+ current[m.key]={isValid=function()return true end,getHandle=function()return hand(m.key)end,
+  isDead=function()reads=reads+1;return dead end}
+ assert(not Nodes.available(s,index,false,'other') and reads==1 and stale==0)
+ dead=true;assert(Nodes.available(s,index,false,'other') and reads==2 and stale==0)
+end)
+test('an unloaded claim stays reserved until its own complete roster confirms departure',function()
+ fixture('guard','weapons',2);Duty.tick(s,ms)
+ local m=ms[1];local index=Duty.candidates('weapons','guard',0)[1]
+ local stale=0;m.char.isDead=function()stale=stale+1;error('UNLOADED_CHARACTER_POINTER')end
+ current[m.key]=nil
+ assert(not Nodes.available(s,index,false,'other'))
+ local other={key=s.key,cfg={shop='weapons',role='trader'}}
+ Nodes.prune(other,{})
+ assert(not Nodes.available(s,index,false,'other') and stale==0)
+ current[m.key]={isValid=function()return true end,getHandle=function()return hand(m.key)end,isDead=function()return false end}
+ assert(not Nodes.available(s,index,false,'other') and stale==0)
+ Nodes.prune(s,{ms[2]})
+ assert(Nodes.available(s,index,false,'replacement') and stale==0)
+end)
+test('all service roles release obsolete own claims without releasing another role',function()
+ for _,role in ipairs({'guard','trader','chief','patrol'})do
+  fixture(role,'police',2);assert(Nodes.ensure(s,b))
+  Nodes.claim(s,1,false,ms[1])
+  local other={key=s.key,cfg={shop='police',role='foreign-role'}}
+  Nodes.claim(other,2,false,ms[2])
+  Nodes.prune(s,{})
+  assert(Nodes.available(s,1,false,'replacement'))
+  assert(not Nodes.available(s,2,false,'replacement'))
+ end
+end)
+test('extinct hired patrol claims follow the saved street row across new native platoon IDs',function()
+ fixture('patrol','police',7);s.cfg.count=3;s.cfg.patrolNight=true;s.cfg.serviceHired=true
+ s.cfg.streetSlotBase=3;s.cfg.existingID='old-pid'
+ Duty.tick(s,{ms[1],ms[2],ms[3]})
+ local other={key=s.key,building=b,cfg={role='patrol',shop='police',count=3,patrolNight=true,
+  serviceHired=true,streetSlotBase=6,existingID='other-pid'},work={done=true},now=s.now}
+ Duty.tick(other,{ms[4],ms[5],ms[6]})
+ local stale=0
+ for i=1,3 do
+  current[ms[i].key]=nil
+  ms[i].char.isDead=function()stale=stale+1;error('DELETED_CHARACTER_POINTER')end
+ end
+ local replacement={key=s.key,building=b,cfg={role='patrol',shop='police',count=3,patrolNight=true,
+  serviceHired=true,streetSlotBase=3,existingID='new-pid'},work={done=true},now=s.now+1}
+ Duty.tick(replacement,{ms[7]})
+ assert(calls.jobs==7 and stale==0)
+ local index=Duty.candidates('police','patrol',0)[1]
+ assert(Nodes.available(replacement,index,4,ms[7].key))
+ for slot=5,6 do assert(Nodes.available(replacement,index,slot,'other'))end
+ for slot=7,9 do assert(not Nodes.available(replacement,index,slot,'other'))end
+end)
+test('physical unload and reload clear old node reservations before new selection',function()
+ fixture('guard','weapons',3);Duty.tick(s,{ms[1],ms[2]})
+ local stale=0;local oldKey=ms[1].key;local index=Duty.candidates('weapons','guard',0)[1]
+ current[oldKey]=nil;ms[1].char.isDead=function()stale=stale+1;error('DELETED_CHARACTER_POINTER')end
+ b.isPhysical=function()return false end;s.now=722;Duty.tick(s,{ms[2]})
+ assert(not Nodes.available(s,index,false,'replacement') and stale==0)
+ b.isPhysical=function()return true end;b.getRootNode=function()return 'new-physical'end
+ ms[3].char:setName('KS: Охрана (1 этаж)');s.now=723;Duty.tick(s,{ms[2],ms[3]})
+ assert(s.postDuty.members[ms[3].key].node and stale==0)
+ Nodes.resetSession();assert(Nodes.available(s,index,false,'replacement') and stale==0)
+end)
+test('a temporary physical flag change reuses nodes when the actual root is unchanged',function()
+ fixture('guard','weapons',3);local guards={ms[1],ms[2]};Duty.tick(s,guards)
+ local other={key=s.key,cfg={shop='weapons',role='trader'}}
+ local index=Duty.candidates('weapons','guard',0)[2];Nodes.claim(other,index,false,ms[3])
+ local before=calls.typed
+ b.isPhysical=function()return false end;s.now=722;Duty.tick(s,guards)
+ b.isPhysical=function()return true end;s.now=723;Duty.tick(s,guards)
+ assert(calls.typed==before and calls.opaque==0 and not Nodes.available(s,index,false,'replacement'))
+ local nativeRoot=b.getRootNode;b.getRootNode=function()return nil end
+ s.now=725;Duty.tick(s,guards)
+ b.getRootNode=nativeRoot;s.now=726;Duty.tick(s,guards)
+ assert(calls.typed==before and calls.opaque==0 and not Nodes.available(s,index,false,'replacement'))
+ b.isPhysical=function()return false end;s.now=728;Duty.tick(s,guards)
+ b.isPhysical=function()return true end;b.getRootNode=function()return 'different-native-root'end
+ s.now=729;Duty.tick(s,guards)
+ assert(calls.typed==before+#Posts.weapons and calls.opaque==0 and Nodes.available(s,index,false,'replacement'))
+end)
+test('an invalid resolved actor is never dereferenced for claim health',function()
+ fixture('guard','weapons',1);Duty.tick(s,ms)
+ local index=Duty.candidates('weapons','guard',0)[1];local read=0
+ current[ms[1].key]={isValid=function()return false end,getHandle=function()error('INVALID_HANDLE_READ')end,
+  isDead=function()read=read+1;error('INVALID_CHARACTER_READ')end}
+ assert(not Nodes.available(s,index,false,'replacement') and read==0)
+ Nodes.prune(s,{})
+ assert(Nodes.available(s,index,false,'replacement') and read==0)
 end)
 print('Native post/shift API tests passed: '..count..'; game AI execution is not simulated')

@@ -3,7 +3,7 @@ local Registry=require('Core.Registry')
 local Log=require('Diagnostics')
 local Construction=require('Construction')
 local Ownership=require('Core.Ownership.Registry')
-local M={version='1.0-beta.5'}
+local M={version='1.0-beta.6'}
 local started=false
 local npcLoadedLogged={}
 function M.start()

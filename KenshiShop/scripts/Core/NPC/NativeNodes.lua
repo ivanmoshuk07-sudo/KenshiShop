@@ -12,6 +12,14 @@ local function postKey(index,outside)
  return outside and 'street' or index
 end
 local function field(o,k)local ok,v=pcall(function()return o[k]end);if ok then return v end end
+local function owner(s)
+ local cfg=s.cfg or {}
+ -- A service role outlives its native platoon: an extinct paid patrol can be
+ -- recreated with another PID, while retaining its own saved street row.
+ local group=cfg.streetSlotBase
+ if group==nil then group=cfg.serviceHired and (cfg.existingID or tostring(s)) or 'base' end
+ return tostring(cfg.shop)..'\0'..tostring(cfg.role)..'\0'..tostring(group)
+end
 -- SDK extension wraps the existing factory result as its RootObject base. NPCs
 -- remain in their platoon containers even while inside; their container must
 -- never be passed to the generic building/interior factory.
@@ -50,6 +58,12 @@ function M.nearest(s,b,pos)
  return best,distance
 end
 function M.resetSession()buildings={}end
+function M.invalidatePhysical(s,physical)
+ local r=buildings[s.key]
+ -- isPhysical can be temporarily false while the same native interior still
+ -- exists. Keep its nodes until a different actual root proves a new interior.
+ if physical and r and r.physical~=physical then buildings[s.key]=nil end
+end
 function M.ensure(s,b)
  local world=getGameWorld();local gm=world and world.gamedata
  if not gm or not world.theFactory then return false,'NODE_FACTORY_UNAVAILABLE'end
@@ -164,12 +178,36 @@ function M.target(s,b,ms,index,outside)
  return result
 end
 function M.available(s,index,outside,member)
- local r=buildings[s.key];local claim=r and r.claims and r.claims[postKey(index,outside)]
- return not claim or claim.member==member or Live.call(claim.char,'isDead')==true
+ local r=buildings[s.key];local key=postKey(index,outside)
+ local claim=r and r.claims and r.claims[key]
+ if not claim or claim.member==member then return true end
+ -- Character wrappers contain raw engine pointers. Only copied hand values
+ -- survive a frame, and every health read uses the currently resolved actor.
+ local c=Live.call(claim.handle,'getCharacter')
+ if not c or Live.call(c,'isValid')~=true
+  or Live.call(Live.call(c,'getHandle'),'toString')~=claim.member then return false end
+ if Live.call(c,'isDead')==true then r.claims[key]=nil;return true end
+ return false
+end
+function M.prune(s,ms)
+ local r=buildings[s.key]
+ if not r or not r.claims then return end
+ local present={};for _,m in ipairs(ms)do present[m.key]=true end
+ local own=owner(s)
+ for key,claim in pairs(r.claims)do
+  -- The caller supplies its complete loaded roster. An unresolved handle on
+  -- its own cannot distinguish an unloaded actor from a deleted one.
+  if claim.owner==own and not present[claim.member] then r.claims[key]=nil end
+ end
 end
 function M.claim(s,index,outside,m)
  local r=assert(buildings[s.key]);r.claims=r.claims or {}
- for k,v in pairs(r.claims)do if v.member==m.key then r.claims[k]=nil end end
- if index then r.claims[postKey(index,outside)]={member=m.key,char=m.char}end
+ local own=owner(s)
+ for k,v in pairs(r.claims)do if v.owner==own and v.member==m.key then r.claims[k]=nil end end
+ if index then
+  local h=Live.call(m.char,'getHandle')
+  if Live.call(h,'toString')~=m.key then h=nil end
+  r.claims[postKey(index,outside)]={member=m.key,handle=h,owner=own}
+ end
 end
 return M

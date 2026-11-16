@@ -112,6 +112,17 @@ local function hiredConfig(pid,row)
  local cfg=Config.copy(Config.hired);cfg.existingID=pid;cfg.streetSlotBase=row.base
  return cfg
 end
+local function syncHireReceipt(pid,row)
+ -- The patrol registry follows the current native platoon. An extinct squad
+ -- can be replaced with a new PID while its original paid receipt survives.
+ local order=Store.get().orders[row.order]
+ if not order or order.kind~='hire' or type(order.metadata)~='table'
+  or order.metadata.building~=row.building or order.metadata.town~=row.town then return nil end
+ local oldPID=order.pid
+ order.pid=pid;row.pid=pid
+ if oldPID and oldPID~=pid then recoverPatrols[oldPID]=nil end
+ return order
+end
 local function driverFor(p,cfg)
  if cfg.serviceHired then
   local pid=Live.call(p,'getPlatoonStringID')
@@ -141,8 +152,18 @@ local function finishReplacement(order,plan,receipt)
   local row=Store.get().patrols[receipt.pid] or Store.get().patrols[plan.record.pid]
   if not row then return false,'HIRED_IDENTITY_MISSING'end
   if receipt.pid~=plan.record.pid then
+   -- Cancel the extinct owner's Lua monitor before discarding its ID; no
+   -- operation is performed on its old native Platoon pointer.
+   local oldDriver=drivers[plan.record.pid]
+   if oldDriver then
+    local stopped=pcall(oldDriver.resetSession)
+    if not stopped then return false,'OLD_HIRED_MONITOR_STOP_PENDING'end
+    drivers[plan.record.pid]=nil
+   end
+   attached[plan.record.pid]=nil;recoverPatrols[plan.record.pid]=nil
    Store.get().patrols[plan.record.pid]=nil;Store.get().patrols[receipt.pid]=row;row.pid=receipt.pid
   end
+  syncHireReceipt(receipt.pid,row)
   cfg=hiredConfig(receipt.pid,row)
  end
  local ms=actorCount(receipt.platoon,cfg)
@@ -182,13 +203,19 @@ local function finishReplacement(order,plan,receipt)
  return true
 end
 local function finishHired(order,p,building)
- local row=Store.get().patrols[order.pid]
+ local pid=Live.call(p,'getPlatoonStringID')
+ local row=pid and Store.get().patrols[pid]
  if not row then return false,'HIRED_RECEIPT_MISSING'end
+ if row.order~=order.id or syncHireReceipt(pid,row)~=order then return false,'HIRED_RECEIPT_MISMATCH'end
+ local complete=order.status=='complete'
  -- Once adopted, the ordinary controller owns its roster and duty. Historical
  -- receipts are retained for payment idempotency, not polled as active work.
- if attached[order.pid] and order.status=='complete' then return true end
+ if attached[pid] and complete then return true end
  local residentPID=order.metadata.residentPID
- if residentPID then
+ -- This rollback compensates only for a factory allocation overwriting the
+ -- tower resident. A completed hire must preserve the tower's current owner,
+ -- including a replacement chief created long after this paid receipt.
+ if not complete and not row.adopted and residentPID then
   local actual=Live.call(Live.call(field(building,'residentSquad'),'getPlatoon'),'getPlatoonStringID')
   if actual~=residentPID then
    if actual and actual~=order.pid then return false,'FOREIGN_TOWER_RESIDENT_PRESERVED'end
@@ -200,7 +227,6 @@ local function finishHired(order,p,building)
  end
  local cfg=hiredConfig(order.pid,row)
  local ms=actorCount(p,cfg)
- local complete=order.status=='complete'
  if not complete and (not ms or #ms~=3) then return false,'HIRED_MEMBERS_LOADING'end
  local driver=driverFor(p,cfg)
  if not attached[order.pid] then
@@ -240,6 +266,9 @@ local function indexWork()
    if order and (order.status=='cancelled' or order.status=='refunded') then record.order=nil end
   end
  end
+ -- Repair beta.3-.5 saves whose patrol row already migrated but whose
+ -- original hire receipt still names the extinct PID, before indexing work.
+ for pid,row in pairs(Store.get().patrols)do syncHireReceipt(pid,row)end
  for _,order in pairs(Store.get().orders)do track(order)end
  for pid in pairs(Store.get().patrols)do if not attached[pid] then recoverPatrols[pid]=true end end
  indexed=true
