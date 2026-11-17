@@ -344,7 +344,7 @@ end
 local function process(request)
  local ctx,why=context(request.chief,request.player)
  if not ctx then report('CONTEXT_UNAVAILABLE',why);notify('Начальник, игрок или башня сейчас недоступны для оформления заказа.');return end
- if not hooksReady or not Store.ready() then notify('Услуга найма недоступна: реестр сохранения ещё не готов. Деньги не списаны.');return end
+ if not hooksReady or not Store.ready() then notify('Данные найма сейчас недоступны. Найм отключён до проверки реестра сохранения. Деньги не списаны.');return end
  local scanned,scanWhy=Roster.scan(true)
  if request.action=='check' then
   local losses=lossSnapshots(ctx)
@@ -358,9 +358,8 @@ local function process(request)
  if request.action=='replace' then replace(ctx,request.selectedID) elseif request.action=='hire' then hire(ctx,request.nonce)end
 end
 function M.observe(s,ms)
- if not Store.ready() then return end
- local ok,why=pcall(Roster.observe,s,ms)
- if not ok then report('ROSTER_ERROR',why);return end
+ -- The native conversation is independent of the payment ledger. A damaged
+ -- field must block purchases, not silently remove the chief's entire menu.
  if s.cfg.role=='chief' then
   for _,m in ipairs(ms)do if Live.call(m.char,'isDead')==false then
    local ready,reason=Dialogue.attach(m.char)
@@ -368,6 +367,9 @@ function M.observe(s,ms)
    if dialogueStatus[m.key]~=status then report('DIALOGUE_STATUS','member='..m.key..' status='..status);dialogueStatus[m.key]=status end
   end end
  end
+ if not Store.ready() then return end
+ local ok,why=pcall(Roster.observe,s,ms)
+ if not ok then report('ROSTER_ERROR',why)end
 end
 local function recover(task)
  if task.kind=='scan' then
@@ -456,13 +458,18 @@ function M.start()
   {'PlayerInterface::serialise',function(_,data)
    -- A brand-new campaign has no load callback. Its first ordinary save is
    -- the native save-scope handshake; corrupt loaded state is never replaced.
-   if not loadedSeen and not Store.ready() then loadedSeen=true;Store.load(data)end
+   if not loadedSeen and not Store.ready() then
+    loadedSeen=true;local ok,why=Store.load(data);hooksReady=hooksInstalled and ok
+    report(ok and 'STATE_INITIALIZED' or 'LOAD_ERROR',(why or 'save_scoped=true')..' '..Store.diagnostics())
+   end
    local ok,why=Store.save(data)
-   if not ok and Store.ready() then hooksReady=false;report('SAVE_ERROR',why)end
+   if ok then hooksReady=hooksInstalled
+   elseif why=='STORE_HELD' then hooksReady=false;report('STATE_HELD',Store.diagnostics())
+   elseif why~='STORE_NOT_READY' then hooksReady=false;report('SAVE_ERROR',why..' '..Store.diagnostics())end
   end},
   {'PlayerInterface::loadFromSerialise',function(_,data)
    M.resetSession();loadedSeen=true;local ok,why=Store.load(data);hooksReady=hooksInstalled and ok
-   report(ok and 'STATE_LOADED' or 'LOAD_ERROR',why or 'save_scoped=true')
+   report(ok and 'STATE_LOADED' or 'LOAD_ERROR',(why or 'save_scoped=true')..' '..Store.diagnostics())
   end},
   {'Character::declareDead',function(c)if Store.ready() then local ok,why=pcall(Roster.death,c);if not ok then report('DEATH_ERROR',why)end end end},
   {'GameWorld::resetGame',M.resetSession},

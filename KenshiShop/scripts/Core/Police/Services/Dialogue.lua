@@ -118,6 +118,9 @@ local function collect(dialogue)
  return nodes
 end
 local function text(node,value)
+ -- Native text setters consume C strings. Keep the original roster/identity
+ -- bytes intact, but make presentation safe for that boundary as well.
+ value=value:gsub('%z',' ')
  node.texts=value
  local read=field(node,'texts')
  assert(type(read)=='table' and read[1]==value,'CHIEF_SELECTION_TEXT_VERIFY_FAILED')
@@ -128,6 +131,11 @@ local function locked(s,node,on)
 end
 local function rows(s,api)
  local result,why=api.listLosses(s.chief,s.player)
+ if result==nil and why=='SERVICE_STORE_NOT_READY' then
+  s.rows={}
+  s.unavailable='Данные найма из сохранения сейчас недоступны. Найм отключён до проверки реестра. Деньги не списаны.'
+  return
+ end
  assert(type(result)=='table',tostring(why or 'CHIEF_SELECTION_LIST_UNAVAILABLE'))
  assert(#result<=4096,'CHIEF_SELECTION_ROWS_LIMIT')
  local copy,seen={},{}
@@ -137,13 +145,14 @@ local function rows(s,api)
   assert(type(label)=='string' and label~='','CHIEF_SELECTION_LABEL_INVALID')
   copy[#copy+1]={id=row.id,label=label};seen[row.id]=true
  end
- s.rows=copy
+ s.rows=copy;s.unavailable=nil
 end
 local function prepareList(s)
  local total=#s.rows;local pages=math.max(1,math.ceil(total/SIZE))
  s.page=math.max(1,math.min(s.page or 1,pages));s.slots={};s.selected=nil
- local title=total==0 and 'Подтверждённых погибших без оплаченной замены нет.'
+ local title=s.unavailable or (total==0 and 'Подтверждённых погибших без оплаченной замены нет.'
   or 'Кого нанять заново? '..total..' погибших. Страница '..s.page..' из '..pages..'. Замена одного — 10 000 кат.'
+ )
  text(s.nodes[LIST],title)
  for n=0,SIZE-1 do
   local row=s.rows[(s.page-1)*SIZE+n+1]

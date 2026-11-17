@@ -39,10 +39,10 @@ jobs:
           lua Development/tests/police_patrol.lua KenshiShop/scripts
           lua Development/tests/police_recruit.lua KenshiShop/scripts
           lua Development/tests/police_services.lua KenshiShop/scripts
-      - name: Validate preserved gameplay data against beta.5
+      - name: Validate preserved gameplay data against beta.6
         run: |
-          git show v1.0-beta.5:KenshiShop/KenshiShop.mod > /tmp/kenshishop-beta5.mod
-          python Development/tests/data_beta6.py /tmp/kenshishop-beta5.mod KenshiShop/KenshiShop.mod
+          git show v1.0-beta.6:KenshiShop/KenshiShop.mod > /tmp/kenshishop-beta6.mod
+          python Development/tests/data_beta7.py /tmp/kenshishop-beta6.mod KenshiShop/KenshiShop.mod
       - name: Choose the version
         id: version
         env:

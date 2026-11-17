@@ -18,7 +18,7 @@ local function character(key,data,faction,player)
  return c
 end
 local calls,chief,player,dialogue,nodes,choices,ready,losses
-local failText,failLock,failOpen,failList
+local failText,failLock,failOpen,failList,storeUnavailable,cstringText
 local function node(number)
  local texts={'placeholder'}
  local n={getStringID=function()return sid(number)end,setupChildren=function()end}
@@ -26,6 +26,7 @@ local function node(number)
   __newindex=function(t,k,v)
    if k=='texts' then
     if failText then error('setter unavailable')end
+    if cstringText and type(v)=='string' then v=v:match('^[^%z]*')end
     texts=type(v)=='table' and v or {v}
    else rawset(t,k,v)end
   end})
@@ -76,7 +77,7 @@ local function nativeDialogue(c)
 end
 local function fixture()
  Dialogue.resetSession();logs={};requests={};calls={add=0,close=0,open=0};ready=true
- failText=false;failLock=false;failOpen=false;failList=false
+ failText=false;failLock=false;failOpen=false;failList=false;storeUnavailable=false;cstringText=false
  losses={{id='dead-a',label='Первый: охрана бара'},{id='dead-b',label='Второй: продавец оружия'},
   {id='dead-c',label='Третий: патрульный'}}
  tree();choices={}
@@ -89,6 +90,7 @@ local function fixture()
 end
 Dialogue.start({listLosses=function(c,p)
  assert(c:getGameData().stringID=='7310-KenshiShop.mod' and p==player)
+ if storeUnavailable then return nil,'SERVICE_STORE_NOT_READY'end
  if failList then return nil,'STORE_NOT_READY'end
  return losses
 end,request=function(action,c,p,selected)
@@ -252,6 +254,29 @@ test('nonchief speakers and nonplayer targets cannot select or hire',function()
  action(11103);frame();action(11105);assert(#requests==0 and calls.open==0)
  fixture();chief=character('guard','312-KenshiShop.mod','400-KenshiShop.mod',false)
  dialogue=nativeDialogue(chief);greet();action(11105);assert(#requests==0)
+end)
+test('an unavailable save ledger opens a native explanation with every purchase slot locked',function()
+ fixture();storeUnavailable=true;list()
+ assert(dialogue.currentLine==nodes[11200] and nodes[11200].texts[1]:find('недоступны',1,true))
+ assert(not nodes[11200].texts[1]:find('погибших без оплаченной замены нет',1,true))
+ for i=0,5 do
+  assert(dialogue:isLocked(nodes[11210+i]) and dialogue:isLocked(nodes[11240+i]))
+  action(11210+i);frame();action(11240+i)
+ end
+ assert(dialogue:isLocked(nodes[11220]) and dialogue:isLocked(nodes[11221]) and #requests==0 and #logs==1)
+ action(11222);assert(dialogue.ended and #requests==0)
+end)
+test('a recovered ledger restores actual named choices on the next conversation',function()
+ fixture();storeUnavailable=true;list();action(11222)
+ storeUnavailable=false;greet();action(11103);frame()
+ assert(nodes[11200].texts[1]:find('Кого нанять заново?',1,true) and not dialogue:isLocked(nodes[11211]))
+ selected(2);action(11241);assert(#requests==1 and requests[1].id=='dead-b')
+end)
+test('binary-safe saved names remain selectable through native C-string text setters',function()
+ fixture();cstringText=true;losses[2].label='Имя\0охранника'
+ list();assert(nodes[11211].texts[1]=='Имя охранника')
+ selected(2);assert(nodes[11231].texts[1]:find('Имя охранника',1,true))
+ action(11241);assert(#requests==1 and requests[1].id=='dead-b' and losses[2].label=='Имя\0охранника')
 end)
 test('starting twice keeps the original dispatcher and API',function()
  fixture();Dialogue.start({request=function()error('must keep original API')end,listLosses=function()error('must keep API')end})

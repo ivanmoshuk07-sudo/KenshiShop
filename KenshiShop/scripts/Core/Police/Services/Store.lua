@@ -2,18 +2,71 @@
 -- file I/O, executable deserialization, engine objects or event hooks here.
 local M={}
 local KEY='KenshiShopChiefStateV1'
+local RECOVERY_KEY=KEY..'Recovery'
 local MAGIC='KSCS1:'
+local ENVELOPE='KSCS2:'
+local RECOVERY='KSHOLD2:'
+local UNRESOLVED='KSCS_SAVE_FAILED:'
 local MAX_BYTES=2*1024*1024
+local MAX_TRANSPORT=MAX_BYTES*2+128
 local MAX_DEPTH=12
 local MAX_ENTRIES=20000
-local state,ready
+local state,ready,held,diagnostic
 local function blank()return {version=1,seq=0,roster={},orders={},patrols={}}end
-function M.reset()state=blank();ready=false end
+function M.reset()
+ state=blank();ready=false;held=nil
+ diagnostic={error=nil,source='NONE',format='NONE',bytes=0,preserved=false,historyMarker=false}
+end
 M.reset()
 function M.get()return state end
 function M.ready()return ready end
+function M.status()
+ return {ready=ready,error=diagnostic.error,source=diagnostic.source,format=diagnostic.format,
+  bytes=diagnostic.bytes,held=held~=nil,preserved=diagnostic.preserved,saveError=diagnostic.saveError,
+  historyMarker=diagnostic.historyMarker}
+end
+function M.diagnostics()
+ local d=M.status()
+ return 'ready='..tostring(d.ready)..' error='..tostring(d.error or 'NONE')..' source='..d.source
+  ..' format='..d.format..' bytes='..d.bytes..' held='..tostring(d.held)..' preserved='..tostring(d.preserved)
+  ..' history_marker='..tostring(d.historyMarker)
+end
 local function fail(message)error(message,0)end
 local function finite(n)return n==n and n~=math.huge and n~=-math.huge end
+local function checksum(source)
+ local a,b=1,0
+ for i=1,#source do a=(a+source:byte(i))%65521;b=(b+a)%65521 end
+ return b*65536+a
+end
+local function envelope(source,prefix)
+ if type(source)~='string' then fail('STORE_ENCODING_INVALID')end
+ if #source>MAX_BYTES then fail('STORE_BYTES_LIMIT')end
+ local hex={}
+ for i=1,#source do hex[i]=string.format('%02x',source:byte(i))end
+ return prefix..#source..':'..string.format('%.0f',checksum(source))..':'..table.concat(hex)
+end
+local function unwrap(source,prefix)
+ if type(source)~='string' then fail('STORE_ENCODING_INVALID')end
+ if #source>MAX_TRANSPORT then fail('STORE_BYTES_LIMIT')end
+ if source:sub(1,#prefix)~=prefix then fail('STORE_ENCODING_INVALID')end
+ local size,digest,hex=source:sub(#prefix+1):match('^(%d+):(%d+):([0-9a-fA-F]*)$')
+ if not size or #size>8 or #digest>10 then fail('STORE_ENVELOPE_INVALID')end
+ size,digest=tonumber(size),tonumber(digest)
+ if size>MAX_BYTES then fail('STORE_BYTES_LIMIT')end
+ if #hex~=size*2 then fail('STORE_ENVELOPE_LENGTH')end
+ local bytes={}
+ for i=1,#hex,2 do bytes[#bytes+1]=string.char(tonumber(hex:sub(i,i+1),16))end
+ local raw=table.concat(bytes)
+ if checksum(raw)~=digest then fail('STORE_CHECKSUM_INVALID')end
+ return raw
+end
+local function format(source)
+ if type(source)~='string' then return source==nil and 'NONE' or 'INVALID_TYPE'end
+ if source:sub(1,#ENVELOPE)==ENVELOPE then return 'ASCII_HEX'end
+ if source:sub(1,#MAGIC)==MAGIC then return 'LEGACY'end
+ if source:sub(1,#UNRESOLVED)==UNRESOLVED then return 'SAVE_FAILURE_MARKER'end
+ return 'UNKNOWN'
+end
 local function schema(value)
  if type(value)~='table' or value.version~=1 then fail('STORE_VERSION_UNSUPPORTED')end
  if type(value.seq)~='number' or not finite(value.seq) or value.seq<0 or value.seq%1~=0 then fail('STORE_SEQUENCE_INVALID')end
@@ -118,30 +171,110 @@ local function decode(source)
  if at~=#source+1 then fail('STORE_TRAILING_DATA')end
  return value
 end
+local function readSaved(saved)
+ if type(saved)=='string' and saved:sub(1,#ENVELOPE)==ENVELOPE then saved=unwrap(saved,ENVELOPE)end
+ local value=decode(saved);schema(value);return value
+end
+local function writeField(gameData,key,saved)
+ if not gameData or not gameData.sdata then fail('STORE_GAME_DATA_UNAVAILABLE')end
+ gameData:addString(key,saved,'KenshiShop',false)
+ -- Some implementations only add a field once. Verify both native routes.
+ if gameData.sdata[key]~=saved then gameData.sdata[key]=saved end
+ if gameData.sdata[key]~=saved then fail('STORE_SAVE_VERIFY_FAILED')end
+end
+local function failureMarker(gameData,why)
+ -- A failed encode/write must not make the next native save look like a new
+ -- campaign. The bounded marker preserves uncertainty, not the missing data.
+ local saved=envelope(UNRESOLVED..tostring(why):sub(1,512),RECOVERY)
+ writeField(gameData,RECOVERY_KEY,saved)
+end
 function M.load(gameData)
  M.reset()
+ local saved
  local ok,result=pcall(function()
   if not gameData or not gameData.sdata then fail('STORE_GAME_DATA_UNAVAILABLE')end
-  local saved=gameData.sdata[KEY]
-  if saved==nil then return blank()end
-  local value=decode(saved);schema(value);return value
+  local recovery=gameData.sdata[RECOVERY_KEY]
+  if recovery~=nil then
+   -- A recovery field records an unresolved history, not a backup authorized
+   -- for automatic rollback. Even a valid primary cannot erase that warning.
+   diagnostic.source='RECOVERY';saved=recovery
+   local restored,raw
+   if type(recovery)=='string' and #recovery>MAX_BYTES and #recovery<=MAX_TRANSPORT
+    and recovery:sub(1,#RECOVERY)~=RECOVERY and not recovery:find('[^\32-\126]') then
+    -- New-format primary fields can exceed the raw codec limit after hex
+    -- encoding. Their already safe ASCII bytes need no second expansion.
+    restored,raw=true,recovery
+   else restored,raw=pcall(unwrap,recovery,RECOVERY)end
+   if not restored then fail('STORE_RECOVERY_INVALID '..tostring(raw))end
+   held={raw=raw,envelope=recovery};saved=raw
+   if raw:sub(1,#UNRESOLVED)==UNRESOLVED then
+    held.marker=true;diagnostic.historyMarker=true
+    fail('STORE_HISTORY_UNRESOLVED '..raw:sub(#UNRESOLVED+1))
+   end
+   local decoded,why=pcall(readSaved,raw)
+   fail(decoded and 'STORE_RECOVERY_HELD' or tostring(why))
+  end
+  diagnostic.source='PRIMARY';saved=gameData.sdata[KEY]
+  if saved==nil then diagnostic.source='NONE';return blank()end
+  return readSaved(saved)
  end)
- if not ok then return false,tostring(result)end
+ diagnostic.format=format(saved);diagnostic.bytes=type(saved)=='string' and #saved or 0
+ if not ok then
+  diagnostic.error=tostring(result)
+  if not held and type(saved)=='string' then held={raw=saved}end
+  return false,diagnostic.error
+ end
  state=result;ready=true;return true
 end
 function M.save(gameData)
- if not ready then return false,'STORE_NOT_READY'end
+ if not ready then
+  if not held then return false,'STORE_NOT_READY'end
+  diagnostic.preserved=false
+  local ok,why=pcall(function()
+   local saved=held.envelope
+   if not saved then
+    -- Preserve an oversized but already ASCII source verbatim;
+    -- wrapping it again would expand it on every failed load/save cycle.
+    local raw=held.raw
+    if #raw>MAX_BYTES and #raw<=MAX_TRANSPORT
+     and not raw:find('[^\32-\126]') then saved=raw
+    else saved=envelope(raw,RECOVERY)end
+   end
+   writeField(gameData,RECOVERY_KEY,saved)
+   held.envelope=saved;diagnostic.preserved=not held.marker
+   diagnostic.historyMarker=held.marker==true
+  end)
+  diagnostic.saveError=not ok and tostring(why) or nil
+  if not ok then
+   local marked,problem=pcall(failureMarker,gameData,diagnostic.error..' preservation='..tostring(why))
+   diagnostic.historyMarker=marked or diagnostic.historyMarker
+   if marked then return false,'STORE_HELD_MARKER_ONLY '..tostring(why)end
+   return false,'STORE_HELD_UNPRESERVED '..tostring(why)..' recovery='..tostring(problem)
+  end
+  return false,'STORE_HELD'
+ end
  local ok,result=pcall(function()
-  schema(state);local saved=encode(state)
-  if not gameData or not gameData.sdata then fail('STORE_GAME_DATA_UNAVAILABLE')end
-  gameData:addString(KEY,saved,'KenshiShop',false)
-  -- Some GameData implementations only add a field the first time. The
-  -- exposed string map permits updating that same field on repeated saves.
-  if gameData.sdata[KEY]~=saved then gameData.sdata[KEY]=saved end
-  if gameData.sdata[KEY]~=saved then fail('STORE_SAVE_VERIFY_FAILED')end
+  schema(state)
+  -- KenshiLua string writers consume C strings. An ASCII envelope preserves
+  -- arbitrary original bytes, including Unicode and embedded NUL characters.
+  writeField(gameData,KEY,envelope(encode(state),ENVELOPE))
+  -- Only this still-ready session owns the complete current state. After its
+  -- verified write it may remove an earlier transient failure marker; a load
+  -- of an uncertain recovery field never reaches this branch.
+  if gameData.sdata[RECOVERY_KEY]~=nil then
+   gameData.sdata[RECOVERY_KEY]=nil
+   if gameData.sdata[RECOVERY_KEY]~=nil then fail('STORE_RECOVERY_CLEAR_FAILED')end
+  end
   return true
  end)
- if not ok then return false,tostring(result)end
+ diagnostic.saveError=not ok and tostring(result) or nil
+ if not ok then
+  local marked,problem=pcall(failureMarker,gameData,result)
+  diagnostic.historyMarker=marked or diagnostic.historyMarker
+  if marked then return false,tostring(result)end
+  return false,'STORE_SAVE_FAILED_UNPRESERVED '..tostring(result)..' recovery='..tostring(problem)
+ end
+ diagnostic.historyMarker=false
  return result
 end
 return M

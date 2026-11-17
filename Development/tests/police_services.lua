@@ -12,6 +12,7 @@ package.loaded.Diagnostics={console=function(s)logs[#logs+1]=s end,error=functio
 local clock,bank,spawns,adopts,finishes,postChecks,scans,memberReads,lookups=100,100000,0,0,0,0,0,0,0
 local blockPosts,waitFinish,unknownMember,scanAvailable=false,false,false,true
 local lastSpawnRecord,lastSpawnTemplate
+local dialogueAttaches,rosterObservations=0,0
 local native,buildings,monitors,stopped={},{},{},{}
 local function hand(key,object)
  return {toString=function()return key end,isNull=function()return key==nil end,
@@ -48,7 +49,7 @@ function Roster.scan()scans=scans+1;return scanAvailable,'SCAN_UNAVAILABLE'end
 function Roster.reset()end
 function Roster.building(key)return buildings[key]end
 function Roster.findPlatoon(pid)lookups=lookups+1;return native[pid],native[pid] and nil or 'TRUE_NOT_FOUND'end
-function Roster.observe()return true end
+function Roster.observe()rosterObservations=rosterObservations+1;return true end
 function Roster.death(c)if c and c.dead then Store.get().roster[c.id].dead=true;return true end end
 function Roster.losses(city)
  local rows={}
@@ -56,7 +57,8 @@ function Roster.losses(city)
  table.sort(rows,function(a,b)return a.id<b.id end);return rows
 end
 package.loaded['Core.Police.Services.Roster']=Roster
-local menu={start=function(api)menuAPI=api;return true end,attach=function()return true end,resetSession=function()end}
+local menu={start=function(api)menuAPI=api;return true end,
+ attach=function()dialogueAttaches=dialogueAttaches+1;return true end,resetSession=function()end}
 package.loaded['Core.Police.Services.Dialogue']=menu
 local function driver()
  local pid
@@ -111,6 +113,7 @@ local function fixture()
  tower:setResidentSquad(original)
  clock=100;bank=100000;spawns=0;adopts=0;finishes=0;postChecks=0;logs={};notices={}
  lastSpawnRecord=nil;lastSpawnTemplate=nil
+ dialogueAttaches=0;rosterObservations=0
  blockPosts=false;waitFinish=false;unknownMember=false;scanAvailable=true
  emit('PlayerInterface::loadFromSerialise',{},data())
  Store.get().roster.dead={id='dead',pid='original',building='shop',town='city',squadTemplate='7802-KenshiShop.mod',
@@ -353,5 +356,34 @@ test('completed patrol recovery never overwrites a foreign or temporarily absent
   assert(adopts==before+1 and monitors.hired1 and tower.residentSquad:getPlatoon()==resident)
   assert(bank==80000 and spawns==1)
  end
+end)
+test('a truncated ledger still attaches the native chief menu and preserves failed data on save',function()
+ fixture();local bad=data();bad.sdata.KenshiShopChiefStateV1='KSCS1:T1:S999:cut'
+ emit('PlayerInterface::loadFromSerialise',{},bad)
+ assert(not Store.ready() and Store.status().held)
+ Services.observe({cfg={role='chief'}},{{key='chief',char=chief}})
+ assert(dialogueAttaches==1 and rosterObservations==0)
+ local rows,why=Services.listLosses(chief,player);assert(not rows and why=='SERVICE_STORE_NOT_READY')
+ click('hire');assert(bank==100000 and spawns==0 and next(Store.get().orders)==nil)
+ local held=data();emit('PlayerInterface::serialise',{},held)
+ assert(type(held.sdata.KenshiShopChiefStateV1Recovery)=='string')
+ emit('PlayerInterface::loadFromSerialise',{},held)
+ assert(not Store.ready() and Store.status().held)
+ Services.observe({cfg={role='chief'}},{{key='chief',char=chief}})
+ assert(dialogueAttaches==2 and bank==100000 and spawns==0)
+end)
+test('a new campaign first save recovers hook readiness after a prior corrupt campaign',function()
+ fixture();local bad=data();bad.sdata.KenshiShopChiefStateV1='KSCS1:T1:S999:cut'
+ emit('PlayerInterface::loadFromSerialise',{},bad);assert(not Store.ready())
+ Services.resetSession();emit('PlayerInterface::serialise',{},data())
+ assert(Store.ready());click('hire')
+ assert(bank==80000 and spawns==1 and Store.get().orders['1'].status=='complete')
+end)
+test('a later verified save reenables purchases after a transient native save failure',function()
+ fixture();local bad=data();bad.addString=function()error('temporary native write failure')end
+ emit('PlayerInterface::serialise',{},bad);assert(Store.ready())
+ click('hire');assert(bank==100000 and spawns==0)
+ emit('PlayerInterface::serialise',{},data());click('hire')
+ assert(bank==80000 and spawns==1)
 end)
 print('Chief service payment/reload integration tests passed: '..count)
