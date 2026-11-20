@@ -17,9 +17,6 @@ end
 local function call(o,name)
  return try(function()return o and o[name] and o[name](o) end)
 end
-local function textid(b)
- return try(function()return b:getHandle():toString()end) or 'UNAVAILABLE'
-end
 local function faction(b)
  local f=call(b,'getFaction')
  local d=call(f,'getData')

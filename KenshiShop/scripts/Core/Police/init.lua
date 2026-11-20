@@ -36,7 +36,6 @@ function M.enqueue(building)
     end
     pending[k]=nil
     Log.console('POLICE_CONSTRUCTION_READY building='..k..' after_materials_verified=true frames='..s.frames)
-    Log.console('POLICE_NODE_MARKERS_DATA_ONLY count='..#require('Core.Police.Building.NodeMarkers').markers..' created=0; physical_furniture=61')
     local result
     if b:getNumInternalBuildings()>=Interior.expectedInternalCount() then
      result={status='INTERIOR_ALREADY_FURNISHED'}

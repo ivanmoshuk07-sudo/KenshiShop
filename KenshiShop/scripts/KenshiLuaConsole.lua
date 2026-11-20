@@ -4,7 +4,7 @@
 local Log = require('Diagnostics')
 local layoutsOK, Layouts = pcall(require, 'Layouts')
 if not layoutsOK then Layouts = {} end
-local API = {version = '1.0-beta.7'}
+local API = {version = '1.0-beta.8'}
 local state = {
     started = false, core = 'not started', coreError = nil,
     tracked = {}, order = {},
@@ -37,9 +37,6 @@ end
 local function shopID(b)
     local d = b:getGameData()
     return d and tostring(d.stringID) or nil
-end
-local function handleKey(b)
-    return b:getHandle():toString()
 end
 local function track(b, source)
     if not b then return false end
@@ -167,6 +164,7 @@ API.help = call('help',function()
   'KS.npcStatus(1) - independent trader/guard role statuses',
   'KS.npcReport() - ALL tracked shops and roles, read-only',
   'KS.npcLogs(120) - ONLY automatic NPC event messages',
+  'KS.postTrace(true/false) - toggle detailed post assignments and arrival checks for this run',
   'KS.ownerScan() - READ-ONLY discover PLAYER and KenshiShop merchant-owned buildings',
   'KS.ownerAudit(1), KS.ownerReport(), KS.ownerLogs(200) - READ-ONLY ownership/timing checks',
   'KS.shopFurnitureAudit(1) - READ-ONLY furniture ownership check for ANY shop',
@@ -626,6 +624,10 @@ API.npcLogs = call('npcLogs',function(n)
  local out=Log.historyNPC(n)
  if #out==0 then return 'NPC_LOG_EMPTY (events are emitted automatically on actual transitions)' end
  return join(out)
+end)
+API.postTrace = call('postTrace',function(enabled)
+ local tracing=require('Core.NPC.PostDuty').setTrace(enabled)
+ return tracing and 'POST_TRACE=ON' or 'POST_TRACE=OFF'
 end)
 -- Test commands are read-only, besides one-shot test start markers in the log.
 -- Test 1 baseline must be captured before construction; test 2 snapshots are

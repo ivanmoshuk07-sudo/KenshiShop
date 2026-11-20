@@ -216,13 +216,7 @@ function M.ensure(s,ms)
   assert(ap:getHasVendorList()==true,'NO_VENDOR_LIST')
   assert(ap:getIsTrader()==true,'NOT_TRADER')
   ap:setupTraderBuildings()
-  -- A saved 810x/820x/830x -> 840x handoff marks the one-time stock migration. The new
-  -- package persists in the save, so ordinary reloads never force new goods.
-  if s.saved and s.work.upgraded and not r.migrationAttempted then
-   r.migrationAttempted=true
-   ap:_forceRefreshInventory()
-   Log.console('NPC_CATALOG84_MIGRATED shop='..s.cfg.shop..' native_refresh_once=true')
-  else ap:refreshInventory(false) end
+  ap:refreshInventory(false)
  end)
  if not yes then
   r.tries=r.tries+1;r.nextTry=(s.now or Live.clock())+10

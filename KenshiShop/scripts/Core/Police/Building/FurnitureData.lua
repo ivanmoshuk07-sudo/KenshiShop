@@ -1,6 +1,6 @@
 -- KenshiShop alpha.41: one original Watchtower Police interior (Kenshi 1.0.65).
 -- Original 83 internal objects: 54 kept as physical furniture; 16 inventory objects, 4 loot nodes and 9 AI helper nodes excluded.
--- All 9 original AI nodes preserved exclusively in NodeMarkers.lua, never spawned.
+-- Core.NPC.PostData retains all nine AI positions for native navigation nodes.
 -- Original 7 exterior Police objects: all retained. Original position/quaternion unchanged.
 -- No objects from other shops are altered.
 return {name='police',objects={

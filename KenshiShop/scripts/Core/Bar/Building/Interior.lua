@@ -143,7 +143,7 @@ function M.complete(parent,explicitIndices)
                 assert(item and classification,'Missing item or floor plan')
                 local record=world.gamedata:getData(item.id,0)
                 assert(record,'Missing BUILDING record '..item.id)
-                local category,ownerSource,recordName=OwnerPolicy.classify(item,record)
+                local _,ownerSource,recordName=OwnerPolicy.classify(item,record)
                 local owner=assert(ownerPlan.owners[i],'BAR_OWNER_PLAN_MISSING_INDEX '..i)
                 local desiredFaction=owner=='PLAYER' and playerFaction or ownerFaction
                 local desiredID=owner=='PLAYER' and playerID or npcID

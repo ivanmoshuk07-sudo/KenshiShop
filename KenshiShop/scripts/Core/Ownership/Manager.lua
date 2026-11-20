@@ -182,7 +182,7 @@ function M.new(cfg,report)
    ..' frames='..s.frames..' cpu_ms='..elapsed(s)..' native_calls='..s.nativeCalls
    ..' active_members='..tostring(memberCount or 'n/a')..' since_construction_cpu_ms='..buildMS
   emit(s,'TRANSFER_TIMING',info,'timing')
-  s.ownerOK=true;s.ownerFrame=s.frames
+  s.ownerOK=true
   s.stage='OWNER_OK';s.nextRole=s.frames+ROLE_STEP_FRAMES
   if cfg.shop=='bar' then
    -- AFTER parent ownership was restored: bar-only, bounded 50/50 furniture repair.

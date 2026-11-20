@@ -34,7 +34,7 @@ local function building(s)
  return b
 end
 local function fatal(s,reason)
- s.phase='FAILED';s.reason=reason;s.nextCheck=Live.clock()+AUDIT_MINUTES
+ s.phase='FAILED';s.nextCheck=Live.clock()+AUDIT_MINUTES
  emit(s,'DELIVERY_FAIL','reason='..tostring(reason)..' no_respawn','fatal_'..tostring(reason))
  SupplyQueue.cancel(s)
  if s.hook then MonitorQueue.remove(s.hook);s.hook=nil end
@@ -51,7 +51,6 @@ local function squadMembers(s)
  if s.saved then
   local lead=Live.call(ap,'getSquadLeader')
   local bb=lead and Live.call(lead,'getBlackboard')
-  local _,label=Work.package(s.cfg)
   nativeSaved=Work.isWorkingPackage(s.cfg,Live.call(bb,'getCurrentAIPackageName'))
  end
  if type(count)~='number' or count<1 or count>s.cfg.count or (s.phase~='DELIVERED' and not nativeSaved and count~=s.cfg.count) then
@@ -114,9 +113,12 @@ end
 local function moved(old,now)
  return old and now and T.distance2D(now.pos,old.pos)>PROGRESS
 end
+local function newOrder(mode)
+ return {mode=mode,tries=0,gateTry=0}
+end
 -- Delivery safety only. No native job/package inspection and no job recovery.
 local function dispatch(s,rec,reason,last)
- local o=s.orders[rec.id] or {tries=0,gateTry=0,teleported=false,mode='pending'}
+ local o=s.orders[rec.id] or newOrder('pending')
  s.orders[rec.id]=o
  local ok,err=pcall(rec.char.setDestination,rec.char,s.target,false)
  if not ok then
@@ -160,10 +162,10 @@ local function beginOrders(s,ms,snap,reason,eligible)
     if dispatch(s,rec,reason,false) then count=count+1 end
    else
     emit(s,'ORDER_HELD','member='..m.key..' '..tostring(why or 'NOT_ELIGIBLE'),'held_'..m.key)
-    s.orders[m.key]={mode='protected',tries=0}
+    s.orders[m.key]=newOrder('protected')
    end
   else
-   s.orders[m.key]={mode='arrived',tries=0}
+   s.orders[m.key]=newOrder('arrived')
   end
  end
  if count==0 then s.phase='DELIVERY_PAUSED';s.nextCheck=s.now+AUDIT_MINUTES
@@ -179,18 +181,18 @@ local function fallbackGate(s,ms,ap,snap)
    if held then
     emit(s,'TELEPORT_HELD','member='..m.key..' '..reason,'gate_held_'..m.key)
     all=false
-   else candidates[#candidates+1]={member=m,order=o,rec=rec} end
+   else candidates[#candidates+1]={member=m,rec=rec} end
   else all=false end
  end
  if #candidates==0 then return false,'NO_ELIGIBLE_STALLED_NPC' end
  local source=snap.byID[candidates[1].member.key].pos
  local ok,point,desc=pcall(T.safeGatePoint,s.building,getGameWorld(),source)
  if not ok then return false,'GATE_INVALID '..tostring(point) end
- s.gate=point;s.gateTargets={};s.gateMoved={}
+ s.gateTargets={};s.gateMoved={}
  if all and #candidates==s.cfg.count then
   -- Exact native ActivePlatoon:teleport(absolute Vector3).
   for _,entry in ipairs(candidates)do
-   entry.order.teleported=true;s.teleportUsed[entry.member.key]=true;s.gateTargets[entry.member.key]=point
+   s.teleportUsed[entry.member.key]=true;s.gateTargets[entry.member.key]=point
   end
   local called,errorText=pcall(ap.teleport,ap,point)
   if not called then return false,'NATIVE_PLATOON_TELEPORT_FAILED '..tostring(errorText) end
@@ -202,7 +204,7 @@ local function fallbackGate(s,ms,ap,snap)
    local src=entry.rec.pos
    local dst={x=point.x+(i-1)*2,y=point.y,z=point.z+(i-1)*2}
    local delta={x=dst.x-src.x,y=dst.y-src.y,z=dst.z-src.z}
-   entry.order.teleported=true;s.teleportUsed[entry.member.key]=true;s.gateTargets[entry.member.key]=dst
+   s.teleportUsed[entry.member.key]=true;s.gateTargets[entry.member.key]=dst
    local called,errorText=pcall(entry.member.char.teleport,entry.member.char,delta)
    if called then s.gateMoved[entry.member.key]=true
    else emit(s,'TELEPORT_FAIL','member='..entry.member.key..' '..tostring(errorText),'tele_fail_'..entry.member.key)end
@@ -251,9 +253,9 @@ local function deliveryStep(s,ms,ap,snap)
   s.phase='MOVING';s.nextCheck=s.now+AUDIT_MINUTES
   return
  end
- local pending,exhausted,progress=0,0,0
+ local pending,exhausted=0,0
  for _,m in ipairs(ms)do
-  local o=s.orders[m.key] or {mode='pending',tries=0};s.orders[m.key]=o
+  local o=s.orders[m.key] or newOrder('pending');s.orders[m.key]=o
   local rec=snap.byID[m.key];rec.id=m.key
   if atDeliveryTarget(s,rec) then
    o.mode='arrived'
@@ -261,7 +263,7 @@ local function deliveryStep(s,ms,ap,snap)
    local held,why=Live.halted(m.char)
    if held then o.mode='protected';emit(s,'ORDER_HELD','member='..m.key..' '..why,'held_combat_'..m.key)
    elseif moved(o.previous,rec) then
-    o.mode='moving';o.previous=rec;progress=progress+1
+    o.mode='moving';o.previous=rec
     emit(s,'MOVING','member='..m.key..' distance='..string.format('%.1f',rec.distance)..' retry_suspended',m.key..'_moving_'..tostring(o.tries)..'_'..tostring(o.gateTry))
    elseif o.gateTry>0 then
     o.mode='failed';emit(s,'STUCK','member='..m.key..' after_teleport=1; no_more_attempts','final_stuck_'..m.key)
@@ -272,7 +274,6 @@ local function deliveryStep(s,ms,ap,snap)
     emit(s,'STUCK','member='..m.key..' attempts=3; gate_in_2_game_minutes','stuck_3_'..m.key)
    end
   elseif o.mode=='await' then pending=pending+1
-  elseif o.mode=='moving' then progress=progress+1
   elseif o.mode=='exhausted' then exhausted=exhausted+1
   elseif o.mode=='protected' then
    local held=Live.halted(m.char)
@@ -396,7 +397,7 @@ function M.new(cfg)
    -- version stopped monitoring four stores and lost unfinished delivery.
    s.previousClock=now;s.nextCheck=0;s.phase='WAIT_SAVED'
    s.saved=true;s.platoon=nil;s.orders={};s.baseline=nil;s.work=nil;s.catalog=nil;s.duty=nil;s.nextSupplyCheck=nil;s.supplyResetAt=nil;s.supplyFailures=nil
-   s.teleDue=nil;s.gate=nil
+   s.teleDue=nil
    emit(s,'CLOCK_RESET_RECOVER','game_clock_decreased; read_only_saved_squad_lookup; no_new_spawn','clock_reset_recover_'..s.frames)
    return
   end
@@ -442,10 +443,9 @@ function M.new(cfg)
   if s.rosterFingerprint and s.rosterFingerprint~=fingerprint then invalidateRoster(s,'MEMBER_SET')end
   s.rosterFingerprint=fingerprint
   -- A saved role package proves delivery already ended; a patrol/medic may be away.
-  if s.saved and (s.phase=='WAIT_ACTIVE' or s.phase=='WAIT_BUILDING') then
+  if s.saved and s.phase=='WAIT_ACTIVE' then
    local lead=Live.call(ap,'getSquadLeader')
    local bb=lead and Live.call(lead,'getBlackboard')
-   local _,label=Work.package(cfg)
    if Work.isWorkingPackage(cfg,Live.call(bb,'getCurrentAIPackageName')) then
     s.counted=#ms;return arrived(s,ms,b)
    end
@@ -464,7 +464,7 @@ function M.new(cfg)
   local snap,why=snapshot(s,ms,b,radius(s))
   if not snap then s.nextCheck=now+AUDIT_MINUTES;emit(s,'SCAN_FAIL',why,'scan_'..why);return end
   s.near=snap.near;s.counted=#ms;s.target=snap.target
-  if s.phase=='WAIT_BUILDING' or s.phase=='WAIT_ACTIVE' then
+  if s.phase=='WAIT_ACTIVE' then
    local newSetup=not s.saved and not s.setupDone
    s.phase=newSetup and 'DELIVER' or 'LOAD_PROBE'
    s.nextCheck=now+(newSetup and 0 or LOAD_TEST_MINUTES)
@@ -557,7 +557,7 @@ function M.new(cfg)
   end
   if states[key] then
    local old=states[key]
-   if old.phase=='WAIT_SAVED' or ((cfg.shop=='bar' or cfg.shop=='police') and old.phase=='CLOCK_RESET') then
+   if old.phase=='WAIT_SAVED' then
     -- Verify BEFORE discarding the read-only recovery monitor. An existing
     -- saved squad must retain its monitor and must never be spawned twice.
     local guard,found,why=pcall(Existing.inspect,b,cfg)

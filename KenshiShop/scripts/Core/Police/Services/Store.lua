@@ -6,9 +6,14 @@ local RECOVERY_KEY=KEY..'Recovery'
 local MAGIC='KSCS1:'
 local ENVELOPE='KSCS2:'
 local RECOVERY='KSHOLD2:'
+local CHUNK_MANIFEST='KSCH3:'
 local UNRESOLVED='KSCS_SAVE_FAILED:'
 local MAX_BYTES=2*1024*1024
 local MAX_TRANSPORT=MAX_BYTES*2+128
+-- Native saves have reloaded strings clipped to 4095 bytes even when the
+-- in-memory GameData readback was exact. Keep every written field below it.
+local CHUNK_BYTES=3000
+local MAX_CHUNKS=math.ceil(MAX_TRANSPORT/CHUNK_BYTES)
 local MAX_DEPTH=12
 local MAX_ENTRIES=20000
 local state,ready,held,diagnostic
@@ -62,6 +67,7 @@ local function unwrap(source,prefix)
 end
 local function format(source)
  if type(source)~='string' then return source==nil and 'NONE' or 'INVALID_TYPE'end
+ if source:sub(1,#CHUNK_MANIFEST)==CHUNK_MANIFEST then return 'CHUNK_MANIFEST'end
  if source:sub(1,#ENVELOPE)==ENVELOPE then return 'ASCII_HEX'end
  if source:sub(1,#MAGIC)==MAGIC then return 'LEGACY'end
  if source:sub(1,#UNRESOLVED)==UNRESOLVED then return 'SAVE_FAILURE_MARKER'end
@@ -182,22 +188,113 @@ local function writeField(gameData,key,saved)
  if gameData.sdata[key]~=saved then gameData.sdata[key]=saved end
  if gameData.sdata[key]~=saved then fail('STORE_SAVE_VERIFY_FAILED')end
 end
+local function chunkKey(key,index)
+ return key..'Chunk'..index
+end
+local function chunkIndex(field,key)
+ if type(field)~='string' then return end
+ local suffix=field:match('^'..key..'Chunk([1-9]%d*)$')
+ local index=suffix and tonumber(suffix)
+ if index and index<=MAX_CHUNKS then return index end
+end
+local function manifest(value)
+ if type(value)~='string' or value:sub(1,#CHUNK_MANIFEST)~=CHUNK_MANIFEST then return end
+ if #value>32 then fail('STORE_CHUNK_MANIFEST_INVALID')end
+ local size,digest=value:sub(#CHUNK_MANIFEST+1):match('^(%d+):(%d+)$')
+ size,digest=tonumber(size),tonumber(digest)
+ if not size or size<=CHUNK_BYTES or size>MAX_TRANSPORT or not digest or digest>4294967295 then
+  fail('STORE_CHUNK_MANIFEST_INVALID')
+ end
+ return math.ceil(size/CHUNK_BYTES),size,digest
+end
+local function readTransport(fields,key,header)
+ local count,size,digest=manifest(header)
+ if not count then return header end
+ local parts={}
+ for i=1,count do
+  local part=fields[chunkKey(key,i)]
+  if part==nil then fail('STORE_CHUNK_MISSING '..i)end
+  if type(part)~='string' or #part~=math.min(CHUNK_BYTES,size-(i-1)*CHUNK_BYTES)
+   or part:find('[^\32-\126]') then fail('STORE_CHUNK_INVALID '..i)end
+  parts[i]=part
+ end
+ local payload=table.concat(parts)
+ if checksum(payload)~=digest then fail('STORE_CHUNK_CHECKSUM_INVALID')end
+ return payload
+end
+local function clearChunks(fields,key,count,clearRecovery)
+ local stale={}
+ -- A failed rewrite can leave numbered fields outside the old manifest or
+ -- gaps between fields. Snapshot only the keys in our reserved namespace.
+ for partKey in pairs(fields)do
+  local index=chunkIndex(partKey,key)
+  if (index and index>count) or (clearRecovery and chunkIndex(partKey,RECOVERY_KEY)) then
+   stale[#stale+1]=partKey
+  end
+ end
+ for _,partKey in ipairs(stale)do
+  fields[partKey]=nil
+  if fields[partKey]~=nil then fail('STORE_CHUNK_CLEAR_FAILED')end
+ end
+end
+local function writeTransport(gameData,key,payload,clearRecovery)
+ local fields=gameData and gameData.sdata
+ if not fields then fail('STORE_GAME_DATA_UNAVAILABLE')end
+ if #payload>MAX_TRANSPORT then fail('STORE_BYTES_LIMIT')end
+ local count=0
+ if #payload<=CHUNK_BYTES then
+  writeField(gameData,key,payload)
+ else
+  count=math.ceil(#payload/CHUNK_BYTES)
+  for i=1,count do
+   writeField(gameData,chunkKey(key,i),payload:sub((i-1)*CHUNK_BYTES+1,i*CHUNK_BYTES))
+  end
+  local header=CHUNK_MANIFEST..#payload..':'..string.format('%.0f',checksum(payload))
+  writeField(gameData,key,header)
+ end
+ if readTransport(fields,key,fields[key])~=payload then fail('STORE_SAVE_VERIFY_FAILED')end
+ clearChunks(fields,key,count,clearRecovery)
+end
 local function failureMarker(gameData,why)
  -- A failed encode/write must not make the next native save look like a new
  -- campaign. The bounded marker preserves uncertainty, not the missing data.
  local saved=envelope(UNRESOLVED..tostring(why):sub(1,512),RECOVERY)
- writeField(gameData,RECOVERY_KEY,saved)
+ writeTransport(gameData,RECOVERY_KEY,saved)
 end
 function M.load(gameData)
  M.reset()
  local saved
  local ok,result=pcall(function()
   if not gameData or not gameData.sdata then fail('STORE_GAME_DATA_UNAVAILABLE')end
-  local recovery=gameData.sdata[RECOVERY_KEY]
-  if recovery~=nil then
+  local fields=gameData.sdata
+  local recoveryHeader,primaryHeader=fields[RECOVERY_KEY],fields[KEY]
+  local orphanRecovery,orphanPrimary=false,false
+  if recoveryHeader==nil then
+   -- A missing manifest with any surviving chunk is not an empty history.
+   for partKey in pairs(fields)do
+    if chunkIndex(partKey,RECOVERY_KEY) then orphanRecovery=true;break end
+    if primaryHeader==nil and chunkIndex(partKey,KEY) then orphanPrimary=true end
+   end
+  end
+  local function readSlot(key,orphaned)
+   saved=fields[key]
+   local complete,payload=false,'STORE_CHUNK_MANIFEST_MISSING'
+   if not orphaned then complete,payload=pcall(readTransport,fields,key,saved)end
+   if not complete then
+    -- Incomplete chunks cannot be certified as the original paid history.
+    -- Retain a bounded warning rather than a manifest that cannot stand alone.
+    held={raw=UNRESOLVED..tostring(payload):sub(1,512),marker=true}
+    diagnostic.historyMarker=true
+    fail(payload)
+   end
+   saved=payload
+   return payload
+  end
+  if recoveryHeader~=nil or orphanRecovery then
    -- A recovery field records an unresolved history, not a backup authorized
    -- for automatic rollback. Even a valid primary cannot erase that warning.
-   diagnostic.source='RECOVERY';saved=recovery
+   diagnostic.source='RECOVERY'
+   local recovery=readSlot(RECOVERY_KEY,orphanRecovery)
    local restored,raw
    if type(recovery)=='string' and #recovery>MAX_BYTES and #recovery<=MAX_TRANSPORT
     and recovery:sub(1,#RECOVERY)~=RECOVERY and not recovery:find('[^\32-\126]') then
@@ -214,7 +311,7 @@ function M.load(gameData)
    local decoded,why=pcall(readSaved,raw)
    fail(decoded and 'STORE_RECOVERY_HELD' or tostring(why))
   end
-  diagnostic.source='PRIMARY';saved=gameData.sdata[KEY]
+  diagnostic.source='PRIMARY';saved=readSlot(KEY,orphanPrimary)
   if saved==nil then diagnostic.source='NONE';return blank()end
   return readSaved(saved)
  end)
@@ -240,7 +337,7 @@ function M.save(gameData)
      and not raw:find('[^\32-\126]') then saved=raw
     else saved=envelope(raw,RECOVERY)end
    end
-   writeField(gameData,RECOVERY_KEY,saved)
+   writeTransport(gameData,RECOVERY_KEY,saved)
    held.envelope=saved;diagnostic.preserved=not held.marker
    diagnostic.historyMarker=held.marker==true
   end)
@@ -257,13 +354,14 @@ function M.save(gameData)
   schema(state)
   -- KenshiLua string writers consume C strings. An ASCII envelope preserves
   -- arbitrary original bytes, including Unicode and embedded NUL characters.
-  writeField(gameData,KEY,envelope(encode(state),ENVELOPE))
+  writeTransport(gameData,KEY,envelope(encode(state),ENVELOPE),true)
   -- Only this still-ready session owns the complete current state. After its
   -- verified write it may remove an earlier transient failure marker; a load
   -- of an uncertain recovery field never reaches this branch.
-  if gameData.sdata[RECOVERY_KEY]~=nil then
-   gameData.sdata[RECOVERY_KEY]=nil
-   if gameData.sdata[RECOVERY_KEY]~=nil then fail('STORE_RECOVERY_CLEAR_FAILED')end
+  local fields=gameData.sdata
+  if fields[RECOVERY_KEY]~=nil then
+   fields[RECOVERY_KEY]=nil
+   if fields[RECOVERY_KEY]~=nil then fail('STORE_RECOVERY_CLEAR_FAILED')end
   end
   return true
  end)

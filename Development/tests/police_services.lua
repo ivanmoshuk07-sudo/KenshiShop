@@ -51,11 +51,6 @@ function Roster.building(key)return buildings[key]end
 function Roster.findPlatoon(pid)lookups=lookups+1;return native[pid],native[pid] and nil or 'TRUE_NOT_FOUND'end
 function Roster.observe()rosterObservations=rosterObservations+1;return true end
 function Roster.death(c)if c and c.dead then Store.get().roster[c.id].dead=true;return true end end
-function Roster.losses(city)
- local rows={}
- for _,r in pairs(Store.get().roster)do if r.town==city and r.dead and not r.replacedBy and not r.order then rows[#rows+1]=r end end
- table.sort(rows,function(a,b)return a.id<b.id end);return rows
-end
 package.loaded['Core.Police.Services.Roster']=Roster
 local menu={start=function(api)menuAPI=api;return true end,
  attach=function()dialogueAttaches=dialogueAttaches+1;return true end,resetSession=function()end}
@@ -132,7 +127,7 @@ local function recover()
  clock=clock+11;for i=1,64 do Services.tick()end
 end
 test('checking losses is free and one paid replacement does not recreate a survivor',function()
- fixture();click('check');assert(bank==100000 and spawns==0)
+ fixture();assert(#assert(Services.listLosses(chief,player))==1 and bank==100000 and spawns==0)
  local survivor=original.members[1];click('replace','dead')
  assert(bank==90000 and spawns==1 and original.members[1]==survivor and Store.get().roster.dead.replacedBy=='new1')
  click('replace','dead');assert(bank==90000 and spawns==1)
@@ -155,8 +150,9 @@ test('loss list is free and returns isolated numbered human labels with persiste
  rows[2].id='changed';rows[2].name='changed';rows[2].label='changed'
  assert(Store.get().roster['opaque-second-8194'].id=='opaque-second-8194' and Store.get().roster['opaque-second-8194'].name=='KS: Охрана (2 этаж)')
  local again=assert(Services.listLosses(chief,player));assert(again[2].id=='opaque-second-8194' and again[2].label~='changed')
- Store.get().roster.dead.name=nil;click('check')
- assert(not notices[#notices]:find('opaque-second-8194',1,true) and not notices[#notices]:find('\ndead',1,true))
+ Store.get().roster.dead.name=nil
+ local unnamed=assert(Services.listLosses(chief,player))
+ assert(unnamed[1].name=='Охранник' and not unnamed[1].label:find('dead',1,true))
 end)
 test('choosing the second loss creates only that role and leaves the first loss available',function()
  fixture();loss('second',{name='Торговец',squadTemplate='305-KenshiShop.mod',charTemplate='7303-KenshiShop.mod'})
@@ -255,7 +251,7 @@ test('corrupt and new campaign state cannot reuse earlier paid claims',function(
  fixture();click('hire');local corrupt=data();corrupt.sdata.KenshiShopChiefStateV1='invalid'
  emit('PlayerInterface::loadFromSerialise',{},corrupt);click('hire')
  assert(bank==80000 and spawns==1 and not Store.ready())
- emit('PlayerInterface::loadFromSerialise',{},data());click('check')
+ emit('PlayerInterface::loadFromSerialise',{},data());assert(#assert(Services.listLosses(chief,player))==0)
  assert(Store.ready() and next(Store.get().orders)==nil and bank==80000)
 end)
 test('a new campaign becomes save-scoped on its first ordinary native save',function()

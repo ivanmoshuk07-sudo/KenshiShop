@@ -7,6 +7,12 @@ local Live=require('Core.NPC.LiveState')
 local Log=require('Diagnostics')
 local Transform=require('Transform')
 local M={}
+local tracePosts=false
+function M.setTrace(enabled)
+ assert(enabled==nil or type(enabled)=='boolean','expected true or false')
+ if enabled~=nil then tracePosts=enabled end
+ return tracePosts
+end
 function M.day(now)local h=now/60%24;return h>=6 and h<23 end
 local function nextShift(now)
  local midnight=now-now%1440
@@ -81,7 +87,7 @@ function M.tick(s,ms)
   local physical=tostring(root)
   Nodes.invalidatePhysical(s,physical)
   if state.physical~=physical then
-   for _,r in pairs(state.members)do r.mode=nil;r.prepared=nil;r.node=nil;r.observeAt=nil;r.tries=0 end
+   for _,r in pairs(state.members)do r.mode=nil;r.node=nil;r.observeAt=nil;r.tries=0 end
    state.open=nil;state.physical=physical;awake=true
   end
   state.physicalAt=s.now+10
@@ -121,7 +127,7 @@ function M.tick(s,ms)
    local used={};for _,slot in pairs(state.patrolSlots)do used[slot]=true end
    for slot=1,3 do if not used[slot] then state.patrolSlots[m.key]=slot;break end end
   end
-  observe(s,r,m.char)
+  if tracePosts then observe(s,r,m.char) else r.observeAt=nil end
   if role=='guard' and state.floorByMember[m.key]==nil then
    -- Native names persist in the save, so a surviving second-floor guard
    -- keeps that role after reloading even when the first guard has died.
@@ -163,8 +169,10 @@ function M.tick(s,ms)
      else
       local ok,detail=Jobs.assign(m.char,node)
       if ok then
+       local newMode=r.mode~=mode
        r.mode=mode;r.index=nextIndex;r.nextAt=s.now+30;r.tries=0;r.node=node
-       r.observeAt=s.now+2;Nodes.claim(s,index,outside,m)
+       r.observeAt=tracePosts and s.now+2 or nil
+       Nodes.claim(s,index,outside,m)
        if role=='guard' and not r.labelled then
         local name='KS: Охрана ('..(floor+1)..' этаж)'
         local fn;pcall(function()fn=m.char.setName end)
@@ -173,8 +181,13 @@ function M.tick(s,ms)
          r.labelled=named and Live.call(m.char,'getName')==name
         end
        end
-       report(s,r,'JOB_ASSIGNED','task=51 priority=1 floor='..node.floor..' outside='..tostring(outside)
-        ..' post='..node.handle:toString()..' next_game_minute='..r.nextAt)
+       if newMode or tracePosts then
+        report(s,r,'JOB_ASSIGNED','task=51 priority=1 floor='..node.floor..' outside='..tostring(outside)
+         ..' post='..node.handle:toString()..' next_game_minute='..r.nextAt)
+       else
+        -- A successful rotation ends the previous failure episode.
+        r.message=nil
+       end
       else r.tries=r.tries+1;report(s,r,'ASSIGN_FAILED',detail)end
      end
     end
@@ -192,7 +205,7 @@ function M.tick(s,ms)
   local due=r.mode~=mode or (role=='guard' and s.now>=(r.nextAt or 0))
   if due and r.tries<3 then wake=s.now end
   if role=='guard' and r.mode==mode and r.nextAt and r.nextAt>s.now then wake=math.min(wake,r.nextAt)end
-  if r.observeAt then wake=math.min(wake,r.observeAt)end
+  if tracePosts and r.observeAt then wake=math.min(wake,r.observeAt)end
  end
  state.nextWake=wake
 end

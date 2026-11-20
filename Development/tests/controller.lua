@@ -71,7 +71,7 @@ package.loaded['Core.NPC.RoleAI']={isWorkingPackage=function(_,name)return name=
  package=function()return '8104-KenshiShop.mod',label end,
  ensure=function()work=work+1;workThisFrame=workThisFrame+1 end,status=function()return 'READY'end}
 package.loaded['Core.NPC.Catalog']={ensure=function()catalog=catalog+1 end,prepare=function()return true end}
-package.loaded['Core.Ownership.Registry']={onArrived=function()end,onRestored=function()end}
+package.loaded['Core.Ownership.Registry']={onSpawned=function()end,onArrived=function()end,onRestored=function()end}
 local Controller=require('Core.NPC.Controller')
 local function driver()return Controller.new({shop='police',role='patrol',template='311-KenshiShop.mod',faction='400-KenshiShop.mod',count=3})end
 local a,b=driver(),driver()
@@ -128,5 +128,31 @@ test('resetting final driver removes shared monitor and all queued supply work',
  b.resetSession();assert(next(frames)==nil)
  runFrames(50);assert(next(frames)==nil)
  noNewOrders()
+end)
+test('a protected new squad member resumes delivery when safe without stopping its monitor',function()
+ local building,p=home('mixed-delivery','new-patrol')
+ local lead,second=p.members[1].char,p.members[2].char
+ local leadX,secondX,secondBusy=250,250,true
+ function lead:getPosition()return {x=leadX,y=0,z=0}end
+ function second:getPosition()return {x=secondX,y=0,z=0}end
+ package.loaded['Core.NPC.LiveState'].halted=function(c)
+  return c==second and secondBusy,'TEST_TEMPORARY_COMBAT'
+ end
+ local transport=package.loaded['Core.NPC.Transport']
+ transport.distance2D=function(x,y)return math.abs(x.x-y.x)end
+ transport.fmt=function(pos)return tostring(pos.x)end
+ transport.preflight=function()return {method='test',spawn={x=250,y=0,z=0}}end
+ transport.spawn=function()spawns=spawns+1;return p end
+ package.loaded['Core.NPC.ExistingSquads'].inspect=function()return false end
+ local d=Controller.new({shop='police',role='patrol',template='311-KenshiShop.mod',faction='400-KenshiShop.mod',count=2})
+ local beforeMoves,beforeSpawns=moves,spawns
+ assert(d.start(building))
+ run(0);assert(moves==beforeMoves+1,'first delivery orders only the safe actor')
+ leadX=150;secondBusy=false
+ run(1);assert(moves==beforeMoves+2,'retry orders the formerly protected actor')
+ leadX,secondX=0,0
+ run(1);delivered(d,building)
+ assert(spawns==beforeSpawns+1 and moves==beforeMoves+2)
+ d.resetSession();assert(next(frames)==nil)
 end)
 print('Controller integration checks: '..total)

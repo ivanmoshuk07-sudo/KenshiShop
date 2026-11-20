@@ -89,16 +89,19 @@ test('zero grade weights in a loaded original profile cannot be certified as cor
  local gm={getData=function(_,id)return id=='400-KenshiShop.mod' and own or native end}
  assert(not Catalog.syncQuality(gm));assert(own.idata['armors 5']==nil)
 end)
-test('saved stock migration refreshes once, ordinary reload respects native restock time',function()
+test('new and saved traders both respect native restock timing during handoff and subsequent audits',function()
  local prepare=Catalog.prepare;Catalog.prepare=function()return true,{source='fixture'}end
- local forced,ordinary=0,0
+ local ordinary=0
  local ap={getHasVendorList=function()return true end,getIsTrader=function()return true end,setupTraderBuildings=function()end,
-  _forceRefreshInventory=function()forced=forced+1 end,refreshInventory=function(_,first)assert(first==false);ordinary=ordinary+1 end}
+  _forceRefreshInventory=function()error('catalog handoff must not force inventory refresh')end,
+  refreshInventory=function(_,first)assert(first==false);ordinary=ordinary+1 end}
  local p={getActivePlatoon=function()return ap end}
- local s={cfg={role='trader',shop='bar'},saved=true,now=1,work={done=true,upgraded=true},platoon=p}
- assert(Catalog.ensure(s,{}));assert(Catalog.ensure(s,{}));assert(forced==1)
- local loaded={cfg=s.cfg,saved=true,now=2,work={done=true},platoon=p}
- assert(Catalog.ensure(loaded,{}));assert(forced==1 and ordinary==2)
+ local cfg={role='trader',shop='bar'}
+ for _,saved in ipairs({false,true})do
+  local s={cfg=cfg,saved=saved,now=1,work={done=true},platoon=p}
+  assert(Catalog.ensure(s,{}));s.now=2;assert(Catalog.ensure(s,{}))
+ end
+ assert(ordinary==4)
  Catalog.prepare=prepare
 end)
 print('Native integration boundary tests passed: '..passed)

@@ -6,10 +6,14 @@ local RECOVERY_KEY=KEY..'Recovery'
 local LEGACY_BLANK='KSCS1:T5:S6:ordersT0:S7:patrolsT0:S6:rosterT0:S3:seqN1:0S7:versionN1:1'
 local count=0
 local function test(name,fn)fn();count=count+1;print('PASS '..name)end
+local function ownField(key)
+ return key==KEY or key==RECOVERY_KEY or key:match('^'..KEY..'Chunk%d+$')
+  or key:match('^'..RECOVERY_KEY..'Chunk%d+$')
+end
 local function data(saved)
  return {sdata=saved and {[KEY]=saved} or {},writes=0,
   addString=function(self,key,value,category,visible)
-   assert((key==KEY or key==RECOVERY_KEY) and category=='KenshiShop' and visible==false)
+   assert(ownField(key) and category=='KenshiShop' and visible==false)
    self.writes=self.writes+1;self.sdata[key]=value
   end}
 end
@@ -119,13 +123,28 @@ local function nativeData(fields)
  local storage=fields or {}
  local gd={writes=0}
  local function cstring(s)return s:match('^[^%z]*')end
- gd.sdata=setmetatable({},{__index=function(_,key)return storage[key]end,
+ gd.sdata=setmetatable({},{__index=function(_,key)return storage[key]end,__pairs=function()return pairs(storage)end,
   __newindex=function(_,key,value)if value==nil then storage[key]=nil else storage[key]=cstring(value)end end})
  function gd:addString(key,value,category,visible)
-  assert((key==KEY or key==RECOVERY_KEY) and category=='KenshiShop' and visible==false)
+  assert(ownField(key) and category=='KenshiShop' and visible==false)
   self.writes=self.writes+1;storage[key]=cstring(value)
  end
  return gd,storage
+end
+local function wirePayload(storage,key)
+ local header=storage[key]
+ local size=header and tonumber(header:match('^KSCH3:(%d+):'))
+ if not size then return header end
+ local chunks={}
+ for i=1,math.ceil(size/3000)do chunks[i]=assert(storage[key..'Chunk'..i])end
+ return table.concat(chunks)
+end
+local function reloadFromNativeDisk(storage)
+ -- The C++ map itself accepts oversize strings. The serialization boundary
+ -- clips them on disk, so a simple in-memory round trip missed the bug.
+ local persisted={}
+ for key,value in pairs(storage)do persisted[key]=value:sub(1,4095)end
+ return nativeData(persisted)
 end
 test('ASCII envelopes round-trip arbitrary bytes through the real C-string writer contract',function()
  local gd,storage=nativeData();assert(Store.load(gd))
@@ -175,15 +194,87 @@ test('recovery markers never authorize rollback to a seemingly valid primary led
 end)
 test('large ASCII envelopes are quarantined without another hex expansion or byte loss',function()
  local gd=fresh();Store.get().roster.payload=string.rep('x',1024*1024+100)
- assert(Store.save(gd));local encoded=gd.sdata[KEY]
+ assert(Store.save(gd));local encoded=wirePayload(gd.sdata,KEY)
  assert(#encoded>2*1024*1024 and #encoded<4*1024*1024)
  local last=encoded:sub(-1);local damaged=encoded:sub(1,-2)..(last=='0' and '1' or '0')
  local ok,why=Store.load(data(damaged));assert(not ok and why=='STORE_CHECKSUM_INVALID')
  local heldGD,storage=nativeData();assert(select(2,Store.save(heldGD))=='STORE_HELD')
- assert(storage[RECOVERY_KEY]==damaged)
+ assert(wirePayload(storage,RECOVERY_KEY)==damaged)
  ok,why=Store.load(heldGD);assert(not ok and why=='STORE_CHECKSUM_INVALID' and not Store.ready())
  local nextGD,nextStorage=nativeData();assert(select(2,Store.save(nextGD))=='STORE_HELD')
- assert(nextStorage[RECOVERY_KEY]==damaged)
+ assert(wirePayload(nextStorage,RECOVERY_KEY)==damaged)
+end)
+test('large paid history survives the native 4095-byte field limit without losing values',function()
+ local gd,storage=nativeData();assert(Store.load(gd))
+ local large=string.rep('Имя\0охранника\n',900)
+ Store.get().seq=8;Store.get().roster.npc={name=large,dead=true}
+ Store.get().orders.paid={kind='replace',status='complete',cost=10000}
+ assert(Store.save(gd) and storage[KEY]:find('^KSCH3:') and storage[KEY..'Chunk2'])
+ local oldFile=reloadFromNativeDisk({[KEY]=wirePayload(storage,KEY)})
+ local ok,why=Store.load(oldFile)
+ assert(not ok and why=='STORE_ENVELOPE_LENGTH' and Store.status().bytes==4095)
+ for key,value in pairs(storage)do assert(#value<=3000 and not value:find('[^\32-\126]'),key)end
+ assert(Store.load(reloadFromNativeDisk(storage)))
+ assert(Store.get().seq==8 and Store.get().roster.npc.name==large and Store.get().orders.paid.cost==10000)
+end)
+test('the observed 4095-byte clipped recovery field remains quarantined byte-for-byte',function()
+ local gd,storage=nativeData();assert(Store.load(gd))
+ Store.get().roster.payload=string.rep('x',3000)
+ assert(Store.save(gd))
+ local oldRecovery=wirePayload(storage,KEY):gsub('^KSCS2:','KSHOLD2:')
+ assert(#oldRecovery>4095)
+ local oldFile=reloadFromNativeDisk({[RECOVERY_KEY]=oldRecovery})
+ local ok,why=Store.load(oldFile)
+ assert(not ok and why=='STORE_RECOVERY_INVALID STORE_ENVELOPE_LENGTH' and Store.status().bytes==4095)
+ local heldGD,heldStorage=nativeData();assert(select(2,Store.save(heldGD))=='STORE_HELD')
+ assert(heldStorage[RECOVERY_KEY]:find('^KSCH3:') and Store.status().preserved)
+ ok,why=Store.load(reloadFromNativeDisk(heldStorage))
+ assert(not ok and Store.status().bytes==4095 and Store.status().source=='RECOVERY')
+ local again,saved=nativeData();assert(select(2,Store.save(again))=='STORE_HELD')
+ assert(wirePayload(saved,RECOVERY_KEY)==wirePayload(heldStorage,RECOVERY_KEY))
+end)
+test('invalid, missing and mutated parts prevent an incomplete paid history from opening',function()
+ local gd,storage=nativeData();assert(Store.load(gd))
+ Store.get().roster.payload=string.rep('x',4000)
+ Store.get().orders.paid={status='pending',cost=10000}
+ assert(Store.save(gd) and storage[KEY..'Chunk2'])
+ local partKey=KEY..'Chunk2'
+ local originalPart=storage[partKey]
+ for i,reason in ipairs({'STORE_CHUNK_MISSING 2','STORE_CHUNK_INVALID 2','STORE_CHUNK_CHECKSUM_INVALID'})do
+  if i==1 then storage[partKey]=nil
+  elseif i==2 then storage[partKey]=originalPart:sub(1,-2)
+  else storage[partKey]='0'..originalPart:sub(2)end
+  local ok,why=Store.load(gd);assert(not ok and why==reason and not Store.ready(),why)
+  assert(Store.status().historyMarker and next(Store.get().orders)==nil)
+  local heldGD,heldStorage=nativeData();assert(select(2,Store.save(heldGD))=='STORE_HELD')
+  assert(not Store.status().preserved and heldStorage[RECOVERY_KEY] and not heldStorage[KEY])
+  ok,why=Store.load(heldGD)
+  assert(not ok and why:find('STORE_HISTORY_UNRESOLVED',1,true) and not Store.ready())
+ end
+end)
+test('parts without a manifest cannot activate a fresh or stale primary ledger',function()
+ local gd=data();gd.sdata[KEY..'Chunk2']='partial'
+ local ok,why=Store.load(gd)
+ assert(not ok and why=='STORE_CHUNK_MANIFEST_MISSING' and Store.status().source=='PRIMARY')
+ gd.sdata[KEY]=LEGACY_BLANK;gd.sdata[RECOVERY_KEY..'Chunk3']='partial recovery'
+ ok,why=Store.load(gd)
+ assert(not ok and why=='STORE_CHUNK_MANIFEST_MISSING' and Store.status().source=='RECOVERY')
+end)
+test('verified rewrites remove only stale ledger parts and preserve new paid claims',function()
+ local gd,storage=nativeData();assert(Store.load(gd))
+ storage.OtherMod='leave this alone'
+ Store.get().roster.payload=string.rep('x',9000)
+ Store.get().orders.paid={status='complete',cost=10000}
+ assert(Store.save(gd) and storage[KEY..'Chunk7'])
+ storage[KEY..'Chunk9']='orphaned by earlier write'
+ storage[RECOVERY_KEY..'Chunk6']='orphaned recovery part'
+ Store.get().roster.payload=string.rep('y',2000)
+ assert(Store.save(gd) and storage[KEY..'Chunk2'] and not storage[KEY..'Chunk3'] and not storage[KEY..'Chunk7'])
+ assert(not storage[KEY..'Chunk9'] and not storage[RECOVERY_KEY..'Chunk6'])
+ Store.get().roster.payload=nil
+ assert(Store.save(gd) and storage[KEY]:find('^KSCS2:') and not storage[KEY..'Chunk1'])
+ assert(not storage[KEY..'Chunk2'] and storage.OtherMod=='leave this alone')
+ assert(Store.load(reloadFromNativeDisk(storage)) and Store.get().orders.paid.status=='complete')
 end)
 test('malformed recovery fields remain held and reset never carries them into another campaign',function()
  local gd=data();gd.sdata[RECOVERY_KEY]='invalid\0recovery'

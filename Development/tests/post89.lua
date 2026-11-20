@@ -15,6 +15,7 @@ local function hand(id,root)
 end
 local s,ms,b,calls,world,inside,active,blocked,newPriority,serial
 local function fixture(role,shop,n)
+ Duty.setTrace(false)
  Nodes.resetSession();current={};logs={};calls={jobs=0,rethinks=0,typed=0,opaque=0,public=0,inserts=0,physical=0,root=0};inside=true;active=268;blocked=false;newPriority=2;serial=0
  local container={selfType=1};local origin={x=100,y=10,z=200};local q={w=math.sqrt(0.5),x=0,y=math.sqrt(0.5),z=0}
  b={getRootNode=function()calls.root=calls.root+1;return 'physical-1'end,isPhysical=function()calls.physical=calls.physical+1;return true end,getScale=function()return 0.25 end,
@@ -200,10 +201,34 @@ test('night merchant and lower-floor guard do not claim the same post',function(
  assert(tg and tg.subject:toString()~=gg.subject:toString())
 end)
 test('assigned goal is not reported as actual arrival by readback',function()
- fixture();Duty.tick(s,ms);s.now=722;Duty.tick(s,ms)
+ fixture();Duty.setTrace(true);Duty.tick(s,ms);s.now=722;Duty.tick(s,ms)
  local found=false
  for _,line in ipairs(logs)do if line:find('NPC_POST_OBSERVE90',1,true)then assert(line:find('arrived=false',1,true));found=true end end
  assert(found)
+end)
+test('routine rotations retain their cadence without disk or readback diagnostics by default',function()
+ fixture('guard','weapons',1)
+ local positionReads=0
+ local originalPosition=ms[1].char.getPosition
+ ms[1].char.getPosition=function(...)
+  positionReads=positionReads+1
+  return originalPosition(...)
+ end
+ Duty.tick(s,ms)
+ local initial=#logs
+ assert(logs[initial]:find('status=JOB_ASSIGNED',1,true))
+ s.now=722;Duty.tick(s,ms)
+ assert(s.postDuty.physicalAt==730 and positionReads==0)
+ s.now=750;Duty.tick(s,ms)
+ s.now=752;Duty.tick(s,ms)
+ assert(#logs==initial and positionReads==0 and calls.rethinks==2)
+ Duty.setTrace(true);s.now=780;Duty.tick(s,ms)
+ s.now=782;Duty.tick(s,ms)
+ assert(logs[initial+1]:find('status=JOB_ASSIGNED',1,true))
+ assert(logs[initial+2]:find('NPC_POST_OBSERVE90',1,true) and positionReads==1)
+ Duty.setTrace(false);s.now=810;Duty.tick(s,ms)
+ s.now=812;Duty.tick(s,ms)
+ assert(#logs==initial+2 and positionReads==1 and calls.rethinks==4)
 end)
 test('saved floor labels preserve a surviving second-floor guard across controller reload',function()
  fixture();Duty.tick(s,ms);assert(ms[2].char:getName()=='KS: Охрана (2 этаж)')
@@ -293,7 +318,7 @@ test('a replacement patrol member reuses its predecessor slot while survivors ke
  assert(s.postDuty.patrolSlots[ms[2].key]==survivorSlot and calls.jobs==4)
 end)
 test('settled posts sleep until readback or rotation with only a ten-minute physical audit',function()
- fixture();Duty.tick(s,ms);s.now=722;Duty.tick(s,ms)
+ fixture();Duty.setTrace(true);Duty.tick(s,ms);s.now=722;Duty.tick(s,ms)
  local physical,roots=calls.physical,calls.root
  for minute=723,731 do s.now=minute;Duty.tick(s,ms)end
  assert(calls.physical==physical and calls.root==roots and calls.rethinks==2)
@@ -318,11 +343,11 @@ test('clock rollback recalculates deadlines and does not strand a guard rotation
  s.now=730;Duty.tick(s,ms);assert(calls.rethinks==6)
 end)
 test('physical reload is audited and wakes settled posts before the next shift',function()
- fixture('chief','police',1);Duty.tick(s,ms);s.now=722;Duty.tick(s,ms)
- b.isPhysical=function()return false end;s.now=732;Duty.tick(s,ms)
+ fixture('chief','police',1);Duty.tick(s,ms)
+ b.isPhysical=function()return false end;s.now=730;Duty.tick(s,ms)
  assert(s.postDuty.physical==nil and calls.rethinks==1)
  b.isPhysical=function()return true end;b.getRootNode=function()return 'physical-2'end
- s.now=733;Duty.tick(s,ms)
+ s.now=731;Duty.tick(s,ms)
  assert(s.postDuty.physical=='physical-2' and calls.rethinks==2 and s.postDuty.members[ms[1].key].mode=='DAY')
 end)
 test('a deleted guard leaves no stale calls or occupied post when its replacement joins',function()
@@ -414,16 +439,16 @@ test('a temporary physical flag change reuses nodes when the actual root is unch
  local other={key=s.key,cfg={shop='weapons',role='trader'}}
  local index=Duty.candidates('weapons','guard',0)[2];Nodes.claim(other,index,false,ms[3])
  local before=calls.typed
- b.isPhysical=function()return false end;s.now=722;Duty.tick(s,guards)
- b.isPhysical=function()return true end;s.now=723;Duty.tick(s,guards)
+ b.isPhysical=function()return false end;s.now=730;Duty.tick(s,guards)
+ b.isPhysical=function()return true end;s.now=731;Duty.tick(s,guards)
  assert(calls.typed==before and calls.opaque==0 and not Nodes.available(s,index,false,'replacement'))
  local nativeRoot=b.getRootNode;b.getRootNode=function()return nil end
- s.now=725;Duty.tick(s,guards)
- b.getRootNode=nativeRoot;s.now=726;Duty.tick(s,guards)
+ s.now=741;Duty.tick(s,guards)
+ b.getRootNode=nativeRoot;s.now=742;Duty.tick(s,guards)
  assert(calls.typed==before and calls.opaque==0 and not Nodes.available(s,index,false,'replacement'))
- b.isPhysical=function()return false end;s.now=728;Duty.tick(s,guards)
+ b.isPhysical=function()return false end;s.now=752;Duty.tick(s,guards)
  b.isPhysical=function()return true end;b.getRootNode=function()return 'different-native-root'end
- s.now=729;Duty.tick(s,guards)
+ s.now=753;Duty.tick(s,guards)
  assert(calls.typed==before+#Posts.weapons and calls.opaque==0 and Nodes.available(s,index,false,'replacement'))
 end)
 test('an invalid resolved actor is never dereferenced for claim health',function()

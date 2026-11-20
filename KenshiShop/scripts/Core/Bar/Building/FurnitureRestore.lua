@@ -84,7 +84,7 @@ function M.apply(parent,source)
  local playerID=factionID(player)
  if playerID==TARGET or playerID=='UNKNOWN' then return false,'INVALID_PLAYER_FACTION' end
  -- Read-only scan supplies a full, uniquely matched layout; no writes otherwise.
- local pass,report,items,plan=Audit.auditBar(parent)
+ local _,report,items,plan=Audit.auditBar(parent)
  if not items or not plan or #plan.owners~=101 then return false,'MATCH_NOT_READY '..tostring(report) end
  for i=1,101 do
   if not items[i] or safe(items[i],'isValid')~=true then return false,'MATCH_INCOMPLETE index='..i end

@@ -1,16 +1,9 @@
 -- KenshiShop alpha.36: current-session exact handles of NEW bar furniture.
 -- Never searches/rewrites neighboring buildings. No pointers survive resetGame.
-local Log=require('Diagnostics')
 local M={}
 local states={}
 local MAX_ITEMS=110
 local MAX_ATTEMPTS=3
-local APPROVED={
- -- Only trader platoons may anchor merchant furniture. Guards are separate.
- ['300-KenshiShop.mod']=1, ['303-KenshiShop.mod']=1,
- ['305-KenshiShop.mod']=1, ['307-KenshiShop.mod']=1,
- ['309-KenshiShop.mod']=1,
-}
 local function safe(obj,method,...)
  if not obj then return nil end
  local ok,fn=pcall(function()return obj[method]end)
@@ -18,11 +11,6 @@ local function safe(obj,method,...)
  local good,v=pcall(fn,obj,...)
  if good then return v end
  return nil
-end
-local function str(f)
- local d=safe(f,'getData')
- local ok,v=pcall(function()return d and d.stringID end)
- return ok and v and tostring(v) or 'UNKNOWN'
 end
 local function key(b)
  local h=safe(b,'getHandle')
@@ -70,22 +58,6 @@ function M.candidates(parent)
   end
  end
  return result,s.count
-end
-local function activePlatoon(f)
- local list=safe(f,'getActivePlatoons')
- local n=list and #list or 0
- if n>300 then return nil,'ACTIVE_SQUAD_SCAN_CAP' end
- for i=1,n do
-  local p=list[i]
-  local tmpl=p and p.squadTemplate
-  local ok,template=pcall(function()return tmpl and tmpl.stringID end)
-  local expected=ok and APPROVED[tostring(template)]
-  if expected and safe(p,'isPersistentSquad')==true then
-   local ap=safe(p,'getActivePlatoon')
-   if ap and safe(ap,'getSquadSize')==expected then return ap,'EXISTING_ACTIVE_MERCHANT' end
-  end
- end
- return nil,'ACTIVE_PLATOON_UNAVAILABLE'
 end
 -- Legacy function name retained for callers; routes to the alpha.37 two-way plan.
 -- providedAP is ignored: destination-specific APs are selected and verified.

@@ -1,11 +1,11 @@
 -- Confirmed native deaths only. Save records contain IDs and scalar metadata;
--- copied engine handles stay in these session-local caches.
+-- copied home building handles stay in this session-local cache.
 local Config=require('Core.Police.Services.Config')
 local Store=require('Core.Police.Services.Store')
 local Transport=require('Core.NPC.Transport')
 local M={}
 local LIMIT=12000
-local buildings,characters={},{}
+local buildings={}
 local function field(o,k)
  local ok,v=pcall(function()return o and o[k]end)
  if ok then return v end
@@ -61,9 +61,9 @@ local function homeHandle(p,c)
  h=field(call(c,'getOwnerships'),'_homeBuilding')
  if handleID(h) then return h end
 end
-local function remember(cache,o,key)
+local function rememberBuilding(o,key)
  local h=call(o,'getHandle')
- if handleID(h)==key then cache[key]=h end
+ if handleID(h)==key then buildings[key]=h end
 end
 local function seedHandle(w)
  -- There is no Lua hand constructor. getHandle and _homeBuilding return
@@ -88,29 +88,27 @@ local function seedHandle(w)
   if ok then return h end
  end
 end
-local function resolve(cache,key,method)
+function M.building(key)
  key=text(key);if not key then return nil end
  local function current(h)
-  local o=call(h,method)
+  local o=call(h,'getBuilding')
   if o and call(o,'isValid')==true and id(o)==key then return o end
  end
- local found=current(cache[key]);if found then return found end
+ local found=current(buildings[key]);if found then return found end
  local h=seedHandle(world())
  if h then
   local _,ok=call(h,'fromString',key)
   if ok and handleID(h)==key then
-   cache[key]=h;return current(h)
+   buildings[key]=h;return current(h)
   end
  end
 end
 function M.reset()
- buildings={};characters={}
+ buildings={}
  -- A save can change at the same game minute; time gating must not retain
  -- handles from the preceding world while service controllers are absent.
  if type(Transport.resetMembers)=='function' then Transport.resetMembers()end
 end
-function M.building(key)return resolve(buildings,key,'getBuilding')end
-function M.character(key)return resolve(characters,key,'getCharacter')end
 function M.findPlatoon(pid)
  pid=text(pid);if not pid then return nil,'PLATOON_ID_UNAVAILABLE' end
  local w=world();if not w then return nil,'WORLD_UNAVAILABLE' end
@@ -149,7 +147,7 @@ function M.observe(s,ms)
  local key=id(b)
  local town=id(call(b,'getTown'))
  if not pid or not key or not town or (s.key and s.key~=key) then return false,'ROSTER_HOME_UNAVAILABLE' end
- remember(buildings,b,key)
+ rememberBuilding(b,key)
  local roster=Store.get().roster
  local ordered,seen,used={},{},{}
  for _,m in ipairs(ms)do
@@ -179,7 +177,6 @@ function M.observe(s,ms)
   if lead then row.leader=lead==m.key end
   -- Observation never revives an already confirmed death or clears receipts.
   if call(m.char,'isDead')==true then row.dead=true end
-  remember(characters,m.char,m.key)
  end
  return true,#ordered
 end
@@ -208,7 +205,7 @@ function M.death(c)
  local cfg=Config.copy(row.squadTemplate)
  local slot=cfg and cfg.role=='guard' and guardSlot(row.name)
  if slot then row.slot=slot;row.floor=slot-1 end
- row.dead=true;remember(characters,c,key)
+ row.dead=true
  return true,row
 end
 function M.scan(fresh)
@@ -254,16 +251,5 @@ function M.scan(fresh)
   if not ok then return false,'CORPSE_ROSTER_UNAVAILABLE' end
  end
  return complete,complete and count or reason
-end
-function M.losses(townID)
- local out={}
- if not Store.ready() then return out end
- for _,row in pairs(Store.get().roster)do
-  if type(row)=='table' and row.town==townID and row.dead==true and not row.replacedBy and not row.order then
-   out[#out+1]=row
-  end
- end
- table.sort(out,function(a,b)return tostring(a.id)<tostring(b.id)end)
- return out
 end
 return M

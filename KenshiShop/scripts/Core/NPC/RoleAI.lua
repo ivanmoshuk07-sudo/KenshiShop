@@ -89,7 +89,6 @@ function M.ensure(s,ms)
  if not ok or home~=s.key then return false end -- ownership lifecycle may still be loading
  local old=bb and Live.call(bb,'getCurrentAIPackageName')
  if type(old)~='string' then return fail(s,r,'BLACKBOARD_UNAVAILABLE') end
- r.initialPackage=r.initialPackage or old
  local world=getGameWorld()
  local data=world and Live.call(world.gamedata,'getData',id,72)
  if not data then return fail(s,r,'PACKAGE_MISSING '..id) end
@@ -127,7 +126,6 @@ function M.ensure(s,ms)
  end
  if Live.call(bb,'getCurrentAIPackageName')~=label then
   -- AI-only migration preserves approved stock, including saved care packages.
-  r.upgraded=false
   local yes,err=pcall(bb.replaceAIPackage,bb,data)
   if not yes then return fail(s,r,'ASSIGN_FAILED '..tostring(err)) end
  end

@@ -346,13 +346,6 @@ local function process(request)
  if not ctx then report('CONTEXT_UNAVAILABLE',why);notify('Начальник, игрок или башня сейчас недоступны для оформления заказа.');return end
  if not hooksReady or not Store.ready() then notify('Данные найма сейчас недоступны. Найм отключён до проверки реестра сохранения. Деньги не списаны.');return end
  local scanned,scanWhy=Roster.scan(true)
- if request.action=='check' then
-  local losses=lossSnapshots(ctx)
-  local parts={'Подтверждённых погибших без оплаченной замены: '..#losses..'. Замена одного — 10 000 кат.'}
-  for i=1,math.min(12,#losses)do parts[#parts+1]=losses[i].label end
-  if not scanned then parts[#parts+1]='Не все отряды доступны для проверки; пропавших не считаю погибшими.'end
-  notify(table.concat(parts,'\n'));return
- end
  if not scanned then report('SCAN_UNAVAILABLE',scanWhy);notify('Проверка состава пока не завершена. Деньги не списаны.');return end
  if pendingUnknown(ctx.town) then notify('Сначала требуется завершить проверку предыдущего оплаченного заказа. Повторной оплаты не будет.');return end
  if request.action=='replace' then replace(ctx,request.selectedID) elseif request.action=='hire' then hire(ctx,request.nonce)end
@@ -418,7 +411,7 @@ local function scheduleRecovery(now)
  add('patrol',recoverPatrols);add('replace',recoverOrders)
 end
 function M.request(action,chief,player,selectedID)
- if action~='check' and action~='replace' and action~='hire' then return false,'UNKNOWN_SERVICE'end
+ if action~='replace' and action~='hire' then return false,'UNKNOWN_SERVICE'end
  if action=='replace' and (type(selectedID)~='string' or selectedID=='') then return false,'LOSS_SELECTION_REQUIRED'end
  if #queue>=8 then return false,'SERVICE_QUEUE_FULL'end
  sequence=sequence+1

@@ -1,6 +1,5 @@
 -- Alpha.76 native movement-safety checks for delivery/load only.
 -- A failed or missing state check never authorizes a forced order or teleport.
-local T=require('Core.NPC.Transport')
 local M={}
 function M.call(obj,method,...)
  if not obj then return nil end
