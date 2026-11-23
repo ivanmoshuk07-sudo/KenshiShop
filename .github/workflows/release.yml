@@ -41,10 +41,10 @@ jobs:
           lua Development/tests/police_services.lua KenshiShop/scripts
           lua Development/tests/police_evacuees.lua KenshiShop/scripts
           lua Development/tests/police_property.lua KenshiShop/scripts
-      - name: Check chief dialogue changes against beta.8
+      - name: Verify Hive HP changes against beta.9
         run: |
-          git show v1.0-beta.8:KenshiShop/KenshiShop.mod > /tmp/kenshishop-beta8.mod
-          python Development/tests/data_beta9.py /tmp/kenshishop-beta8.mod KenshiShop/KenshiShop.mod
+          git show v1.0-beta.9:KenshiShop/KenshiShop.mod > /tmp/kenshishop-beta9.mod
+          python Development/tests/data_beta10.py /tmp/kenshishop-beta9.mod KenshiShop/KenshiShop.mod
       - name: Choose the version
         id: version
         env:

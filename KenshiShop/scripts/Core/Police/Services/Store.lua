@@ -33,7 +33,7 @@ function M.status()
  return {ready=M.ready(),error=diagnostic.error,source=diagnostic.source,format=diagnostic.format,
   bytes=diagnostic.bytes,held=held~=nil,preserved=diagnostic.preserved,saveError=diagnostic.saveError,
   historyMarker=diagnostic.historyMarker,partialRoster=state.partialRoster==true,
-  departureError=diagnostic.departureError}
+  departureError=diagnostic.departureError,prefixError=diagnostic.prefixError}
 end
 function M.diagnostics()
  local d=M.status()
@@ -41,6 +41,7 @@ function M.diagnostics()
   ..' format='..d.format..' bytes='..d.bytes..' held='..tostring(d.held)..' preserved='..tostring(d.preserved)
   ..' history_marker='..tostring(d.historyMarker)..' partial_roster='..tostring(d.partialRoster)
   ..' departure_error='..tostring(d.departureError or 'NONE')
+  ..' prefix_error='..tostring(d.prefixError or 'NONE')
 end
 local function fail(message)error(message,0)end
 local function finite(n)return n==n and n~=math.huge and n~=-math.huge end
@@ -75,6 +76,7 @@ local function format(source)
  if type(source)~='string' then return source==nil and 'NONE' or 'INVALID_TYPE'end
  if source:sub(1,#CHUNK_MANIFEST)==CHUNK_MANIFEST then return 'CHUNK_MANIFEST'end
  if source:sub(1,#ENVELOPE)==ENVELOPE then return 'ASCII_HEX'end
+ if source:sub(1,#RECOVERY)==RECOVERY then return 'RECOVERY_ENVELOPE'end
  if source:sub(1,#MAGIC)==MAGIC then return 'LEGACY'end
  if source:sub(1,#UNRESOLVED)==UNRESOLVED then return 'SAVE_FAILURE_MARKER'end
  return 'UNKNOWN'
@@ -232,13 +234,16 @@ local function recoverClipped(saved)
  if type(saved)~='string' or #saved~=4095 then fail('STORE_NOT_NATIVE_CLIP')end
  local raw=saved
  -- Pre-chunk releases could re-wrap already-clipped fields each time the
- -- save was opened and written again. Each hex prefix proves fewer bytes.
- for _=1,4 do
-  if raw:sub(1,#RECOVERY)~=RECOVERY then break end
+ -- save was opened and written again. Each decode discards the header and
+ -- at least halves the byte count, so even repeated clipping is bounded.
+ while raw:sub(1,#RECOVERY)==RECOVERY do
   raw=decodeClippedEnvelope(raw,RECOVERY)
   if raw==nil then fail('STORE_PREFIX_RECOVERY_INVALID')end
  end
- if raw:sub(1,#ENVELOPE)==ENVELOPE then raw=decodeClippedEnvelope(raw,ENVELOPE)end
+ if raw:sub(1,#ENVELOPE)==ENVELOPE then
+  raw=decodeClippedEnvelope(raw,ENVELOPE)
+  if raw==nil then fail('STORE_PREFIX_ENVELOPE_INVALID')end
+ end
  local value=decode(raw,true)
  schema(value)
  local largest,n=0,0
@@ -536,11 +541,15 @@ function M.load(gameData)
  end)
  diagnostic.format=format(saved);diagnostic.bytes=type(saved)=='string' and #saved or 0
  if not ok then
-  local recovered,partial=pcall(recoverClipped,held and held.raw or saved)
-  if recovered then
-   held=nil
-   diagnostic.source='NATIVE_CLIP_RECOVERED'
-   return loaded(partial)
+  local candidate=held and held.raw or saved
+  if type(candidate)=='string' and #candidate==4095 then
+   local recovered,partial=pcall(recoverClipped,candidate)
+   if recovered then
+    held=nil
+    diagnostic.source='NATIVE_CLIP_RECOVERED'
+    return loaded(partial)
+   end
+   diagnostic.prefixError=type(partial)=='string' and partial:match('^STORE_[A-Z_]+') or 'STORE_PREFIX_ERROR'
   end
   diagnostic.error=tostring(result)
   if not held and type(saved)=='string' then held={raw=saved}end

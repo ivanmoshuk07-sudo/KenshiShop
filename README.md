@@ -1,5 +1,5 @@
-# KenshiShop — 1.0 beta.9
+# KenshiShop — 1.0 beta.10
 
-**[Скачать полный мод beta.9](https://github.com/ivanmoshuk07-sudo/KenshiShop/releases/download/v1.0-beta.9/KenshiShop_1.0-beta.9_FULL.zip)** · [Установка и диалоги](README_BETA9_RU.md) · [Предыдущая версия beta.8](https://github.com/ivanmoshuk07-sudo/KenshiShop/releases/download/v1.0-beta.8/KenshiShop_1.0-beta.8_FULL.zip)
+**[Скачать полный мод beta.10](https://github.com/ivanmoshuk07-sudo/KenshiShop/releases/download/v1.0-beta.10/KenshiShop_1.0-beta.10_FULL.zip)** · [Установка и изменения](README_BETA10_RU.md) · [Предыдущая версия beta.9](https://github.com/ivanmoshuk07-sudo/KenshiShop/releases/download/v1.0-beta.9/KenshiShop_1.0-beta.9_FULL.zip)
 
-В beta.9 обновлены диалоги начальника охраны, добавлено восстановление целых платёжных записей из обрезанного реестра и подтверждение ухода из города.
+В beta.10 расширено восстановление старых реестров найма. Отчёт о текущих потерях работает независимо от оплаты. Лимиты HP трёх рас улья приведены к ванильным значениям.

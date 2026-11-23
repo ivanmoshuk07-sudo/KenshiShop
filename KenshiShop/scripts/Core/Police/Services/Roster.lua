@@ -143,7 +143,7 @@ local function leaderID(p)
  return id(call(ap,'getSquadLeader')) or handleID(field(p,'squadleader'))
 end
 function M.observe(s,ms)
- if not Store.ready() then return false,'STORE_NOT_READY' end
+ if not Store.evacuationReady() then return false,'STORE_NOT_READY' end
  if type(s)~='table' or type(ms)~='table' then return false,'ROSTER_ARGUMENTS_INVALID' end
  local cfg=s.cfg
  if not cfg or not Config.copy(cfg.template) or factionID(s.platoon)~=Config.faction then return false,'FOREIGN_PLATOON' end
@@ -187,7 +187,7 @@ function M.observe(s,ms)
  return true,#ordered
 end
 function M.death(c)
- if not Store.ready() then return false,'STORE_NOT_READY' end
+ if not Store.evacuationReady() then return false,'STORE_NOT_READY' end
  if call(c,'isDead')~=true then return false,'DEATH_UNCONFIRMED' end
  local key=id(c);if not key then return false,'CHARACTER_ID_UNAVAILABLE' end
  local row=Store.get().roster[key]
@@ -216,7 +216,7 @@ function M.death(c)
  return true,row
 end
 function M.scan(fresh,requestedTown,expectedShops)
- if not Store.ready() then return false,'STORE_NOT_READY' end
+ if not Store.evacuationReady() then return false,'STORE_NOT_READY' end
  local w=world();if not w then return false,'WORLD_UNAVAILABLE' end
  local grouped,complete,reason=lists(w)
  local seen,count,unverified={},0,false

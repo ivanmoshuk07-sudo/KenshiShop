@@ -109,17 +109,20 @@ function M.listLosses(chief,player)
  local ctx,why=context(chief,player)
  if not ctx then return nil,why end
  if Store.evacuation(ctx.town) then return nil,'TOWN_EVACUATING' end
- if not Store.ready() then return nil,'SERVICE_STORE_NOT_READY' end
+ if not Store.evacuationReady() then return nil,'SERVICE_STORE_NOT_READY' end
+ local rosterIncomplete=not Store.ready() or Store.get().partialRoster
  local expectedShops,coverageWhy
- if Store.get().partialRoster then expectedShops,coverageWhy=PropertyReturn.staffedShopKeys(ctx) end
+ if rosterIncomplete then expectedShops,coverageWhy=PropertyReturn.staffedShopKeys(ctx) end
  local scanned,scanWhy=Roster.scan(true,ctx.town,expectedShops)
  if coverageWhy then scanned=false;scanWhy=coverageWhy end
  local rows=lossSnapshots(ctx)
  if not scanned then
   report('SCAN_UNAVAILABLE',scanWhy)
-  if #rows==0 then return nil,scanWhy or 'SCAN_UNAVAILABLE' end
+  if #rows==0 then
+   return nil,rosterIncomplete and 'ROSTER_HISTORY_INCOMPLETE' or (scanWhy or 'SCAN_UNAVAILABLE')
+  end
  end
- if #rows>0 and not hooksReady then return rows,'SERVICE_STORE_NOT_READY' end
+ if #rows>0 and (not Store.ready() or not hooksReady) then return rows,'SERVICE_STORE_NOT_READY' end
  return rows,not scanned and (scanWhy or 'SCAN_UNAVAILABLE') or nil
 end
 local function hiredConfig(pid,row)
@@ -378,8 +381,8 @@ local function process(request)
 end
 function M.observe(s,ms)
  if Store.retiredBuilding(s.key) or Store.retiredPlatoon(Live.call(s.platoon,'getPlatoonStringID')) then return end
- -- The native conversation is independent of the payment ledger. A damaged
- -- field must block purchases, not silently remove the chief's entire menu.
+ -- The chief can report current native observations while past payments are
+ -- quarantined. Confirmed current deaths may be visible as read-only rows.
  if s.cfg.role=='chief' then
   for _,m in ipairs(ms)do if Live.call(m.char,'isDead')==false then
    local ready,reason=Dialogue.attach(m.char)
@@ -387,7 +390,7 @@ function M.observe(s,ms)
    if dialogueStatus[m.key]~=status then report('DIALOGUE_STATUS','member='..m.key..' status='..status);dialogueStatus[m.key]=status end
   end end
  end
- if not Store.ready() then return end
+ if not Store.evacuationReady() then return end
  local ok,why=pcall(Roster.observe,s,ms)
  if not ok then report('ROSTER_ERROR',why)end
 end
@@ -509,7 +512,7 @@ function M.start()
    M.resetSession();loadedSeen=true;local ok,why=Store.load(data);hooksReady=hooksInstalled and ok
    report(ok and 'STATE_LOADED' or 'LOAD_ERROR',(why or 'save_scoped=true')..' '..Store.diagnostics())
   end},
-  {'Character::declareDead',function(c)if Store.ready() then local ok,why=pcall(Roster.death,c);if not ok then report('DEATH_ERROR',why)end end end},
+  {'Character::declareDead',function(c)if Store.evacuationReady() then local ok,why=pcall(Roster.death,c);if not ok then report('DEATH_ERROR',why)end end end},
   {'GameWorld::resetGame',M.resetSession},
   {'MyGUI::Gui::eventFrameStart',M.tick},
  }

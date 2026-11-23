@@ -140,6 +140,8 @@ local function rows(s,api)
  s.notice=nil
  if why=='SERVICE_STORE_NOT_READY' then
   s.notice='Реестр найма недоступен.'
+ elseif why=='ROSTER_HISTORY_INCOMPLETE' then
+  s.notice='Состав ещё проверяется. Часть старых сведений о потерях недоступна.'
  elseif result==nil or why then
   s.notice='Состав города проверен не полностью. Список уточняется.'
  end

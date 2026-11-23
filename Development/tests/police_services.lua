@@ -114,6 +114,7 @@ package.loaded['Core.Police.Services.Evacuees']={
 }
 package.loaded['Core.Police.Services.PropertyReturn']={
  prepare=function()return {buildings={tower=true,shop=true},property={tower=true,shop=true,bed=true}}end,
+ staffedShopKeys=function()return {tower='police',shop='armour'}end,
  apply=function(ctx,buildings,property,squads)
   assert(ctx.town=='city' and buildings.tower and property.bed and squads.original)
   propertyReturns=propertyReturns+1
@@ -408,8 +409,15 @@ test('a truncated ledger still attaches the native chief menu and preserves fail
  emit('PlayerInterface::loadFromSerialise',{},bad)
  assert(not Store.ready() and Store.status().held)
  Services.observe({cfg={role='chief'}},{{key='chief',char=chief}})
- assert(dialogueAttaches==1 and rosterObservations==0)
- local rows,why=Services.listLosses(chief,player);assert(not rows and why=='SERVICE_STORE_NOT_READY')
+ assert(dialogueAttaches==1 and rosterObservations==1)
+ scanAvailable=false
+ local rows,why=Services.listLosses(chief,player);assert(not rows and why=='ROSTER_HISTORY_INCOMPLETE')
+ loss('newly-observed')
+ rows,why=Services.listLosses(chief,player)
+ assert(#rows==1 and rows[1].id=='newly-observed' and why=='SERVICE_STORE_NOT_READY')
+ click('replace','newly-observed');assert(bank==100000 and spawns==0)
+ Store.get().roster['newly-observed']=nil
+ scanAvailable=true;assert(#assert(Services.listLosses(chief,player))==0)
  click('hire');assert(bank==100000 and spawns==0 and next(Store.get().orders)==nil)
  local held=data();emit('PlayerInterface::serialise',{},held)
  assert(type(held.sdata.KenshiShopChiefStateV1Recovery)=='string')

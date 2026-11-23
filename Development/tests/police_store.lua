@@ -267,6 +267,38 @@ test('native 4095-byte clipping recovers complete paid receipts and the intact r
   assert(Store.load(reloadFromNativeDisk(saved)) and Store.get().partialRoster and Store.get().seq==1)
  end
 end)
+test('repeated beta.7 clipping can preserve the payment header through six recovery wrappers',function()
+ -- Beta.6 wrote plain KSCS1. Older recovery writes then wrapped the same
+ -- nested, clipped field on every newly loaded session.
+ local legacy='KSCS1:T5:S6:ordersT0:S7:patrolsT0:S6:rosterT1:S4:tailS6000:'
+  ..string.rep('x',6000)..'S3:seqN1:0S7:versionN1:1'
+ local clipped=legacy:sub(1,4095)
+ for depth=1,7 do
+  clipped=wrapRecovery(clipped):sub(1,4095)
+  if depth>=5 then
+   -- Beta.8 preserved this clipped history with an intact outer envelope
+   -- and a checksum-verified chunk transport.
+   local envelope=wrapRecovery(clipped)
+   local size,digest=wrapRecovery(envelope):match('^KSHOLD2:(%d+):(%d+):')
+   local storage={[RECOVERY_KEY]='KSCH3:'..size..':'..digest}
+   for offset=1,#envelope,3000 do
+    storage[RECOVERY_KEY..'Chunk'..(1+(offset-1)//3000)]=envelope:sub(offset,offset+2999)
+   end
+   local gd,persisted=reloadFromNativeDisk(storage)
+   local ok,why=Store.load(gd)
+   if depth<=6 then
+    assert(ok and Store.ready() and Store.get().partialRoster,Store.diagnostics())
+    assert(Store.get().seq==0 and next(Store.get().orders)==nil and next(Store.get().patrols)==nil)
+    assert(Store.save(gd) and not persisted[RECOVERY_KEY])
+    assert(Store.load(reloadFromNativeDisk(persisted)) and Store.get().partialRoster)
+   else
+    assert(not ok and why=='STORE_ENCODING_INVALID' and not Store.ready())
+    assert(Store.status().prefixError=='STORE_TRUNCATED',Store.diagnostics())
+    assert(Store.diagnostics():find('prefix_error=STORE_TRUNCATED',1,true))
+   end
+  end
+ end
+end)
 test('clipped receipts with a hole or missing hire identity cannot activate payment',function()
  local gd,storage=nativeData();assert(Store.load(gd))
  local state=Store.get();state.seq=2
