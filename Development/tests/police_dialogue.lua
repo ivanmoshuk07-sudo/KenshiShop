@@ -18,7 +18,7 @@ local function character(key,data,faction,player)
  return c
 end
 local calls,chief,player,dialogue,nodes,choices,ready,losses
-local failText,failLock,failOpen,failList,storeUnavailable,cstringText,readOnly
+local failText,failLock,failOpen,failList,storeUnavailable,cstringText,readOnly,newLedger
 local function node(number)
  local texts={'placeholder'}
  local n={getStringID=function()return sid(number)end,setupChildren=function()end}
@@ -38,9 +38,10 @@ local function children(number,ids)
  nodes[number].children={conversationChoices=list}
 end
 local function tree()
- nodes={};for _,n in ipairs({11101,11102,11103,11105,11106,11107,11200,11220,11221,11222,11300,11301,11302})do node(n)end
+ nodes={};for _,n in ipairs({11101,11102,11103,11105,11106,11107,11200,11220,11221,11222,11300,11301,11302,11400,11401,11402})do node(n)end
  children(11101,{11102});children(11102,{11103,11105,11107,11106});children(11103,{11200})
  children(11107,{11300});children(11300,{11301,11302})
+ children(11105,{11400});children(11400,{11401,11402})
  local list={}
  for i=0,5 do
   for _,base in ipairs({11210,11230,11240,11250})do node(base+i)end
@@ -80,7 +81,7 @@ local function nativeDialogue(c)
 end
 local function fixture()
  Dialogue.resetSession();logs={};requests={};calls={add=0,close=0,open=0};ready=true
- failText=false;failLock=false;failOpen=false;failList=false;storeUnavailable=false;cstringText=false;readOnly=false
+ failText=false;failLock=false;failOpen=false;failList=false;storeUnavailable=false;cstringText=false;readOnly=false;newLedger=false
  losses={{id='dead-a',label='Первый: охрана бара'},{id='dead-b',label='Второй: продавец оружия'},
   {id='dead-c',label='Третий: патрульный'}}
  tree();choices={}
@@ -97,8 +98,8 @@ Dialogue.start({listLosses=function(c,p)
  if failList then return nil,'STORE_NOT_READY'end
  if readOnly then return losses,'SERVICE_STORE_NOT_READY'end
  return losses
-end,request=function(action,c,p,selected)
- requests[#requests+1]={action=action,chief=c,player=p,id=selected};return true
+end,newLedgerOffered=function()return newLedger end,request=function(action,c,p,selected,fresh)
+ requests[#requests+1]={action=action,chief=c,player=p,id=selected,fresh=fresh};return true
 end})
 local function action(n,d)
  d=d or dialogue
@@ -252,11 +253,22 @@ test('native automatic child progression is accepted without reopening the same 
  action(11241);assert(#requests==1 and requests[1].id=='dead-b')
  assert(calls.close==0,'already linked FCS lines must advance without ending inside the native callback')
 end)
-test('hire and leave retain their original native actions without selection',function()
- fixture();greet();for i=1,10 do action(11105)end
- assert(#requests==1 and requests[1].action=='hire' and requests[1].id==nil)
- greet();action(11105);assert(#requests==2)
+test('patrol quotes never charge without an exact confirmed reply',function()
+ fixture();assert(Dialogue.attach(chief));greet();action(11401)
+ newLedger=true;for i=1,10 do action(11105)end;frame()
+ assert(#requests==0 and dialogue.currentLine==nodes[11400])
+ assert(nodes[11400].texts[1]:find('20 000',1,true) and nodes[11400].texts[1]:find('отдельно',1,true))
+ terminal(11402);action(11401);assert(#requests==0)
+ greet();action(11105);frame();action(11401);action(11401)
+ assert(#requests==1 and requests[1].action=='hire' and requests[1].fresh and requests[1].id==nil)
+ newLedger=false;greet();action(11105);frame();action(11401)
+ assert(#requests==2 and not requests[2].fresh and not nodes[11400].texts[1]:find('отдельно',1,true))
  greet();action(11106);assert(#requests==2)
+end)
+test('a replacement can acknowledge the separate ledger only on exact confirmation',function()
+ fixture();newLedger=true;list();selected(1)
+ assert(nodes[11230].texts[1]:find('отдельно',1,true) and #requests==0)
+ action(11240);assert(#requests==1 and requests[1].id=='dead-a' and requests[1].fresh)
 end)
 test('nonchief speakers and nonplayer targets cannot select or hire',function()
  fixture();greet();dialogue.target=character('npc','npc-template','400-KenshiShop.mod',false)
@@ -288,9 +300,9 @@ test('binary-safe saved names remain selectable through native C-string text set
  action(11241);assert(#requests==1 and requests[1].id=='dead-b' and losses[2].label=='Имя\0охранника')
 end)
 test('starting twice keeps the original dispatcher and API',function()
- fixture();Dialogue.start({request=function()error('must keep original API')end,listLosses=function()error('must keep API')end})
+ fixture();Dialogue.start({request=function()error('must keep original API')end,listLosses=function()error('must keep API')end,newLedgerOffered=function()error('must keep API')end})
  assert(#events['Dialogue::_doActions']==1 and #events['MyGUI::Gui::eventFrameStart']==1)
- greet();action(11105);assert(#requests==1)
+ assert(Dialogue.attach(chief));greet();action(11105);frame();action(11401);assert(#requests==1)
 end)
 test('a read-only roster reports named losses without offering replacement payment',function()
  fixture();readOnly=true;list()
@@ -309,7 +321,7 @@ end)
 test('a player reply still works when the NPC greeting callback was skipped',function()
  fixture();assert(Dialogue.attach(chief));dialogue.target=player;dialogue.ended=false
  dialogue.currentLine=nodes[11102]
- action(11105);action(11105);assert(#requests==1 and requests[1].action=='hire')
+ action(11105);action(11105);frame();action(11401);assert(#requests==1 and requests[1].action=='hire')
  fixture();assert(Dialogue.attach(chief));dialogue.target=player;dialogue.ended=false
  dialogue.currentLine=nodes[11102]
  action(11103);frame()

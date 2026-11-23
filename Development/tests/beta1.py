@@ -103,14 +103,14 @@ def audit_lua():
     require(seen == files, 'unreachable Lua modules: ' + ', '.join(
         str(p.relative_to(scripts)) for p in sorted(files - seen)))
     for name in ['Core.lua', 'KenshiLuaConsole.lua']:
-        require('1.0-beta.10' in (scripts / name).read_text(encoding='utf-8'),
+        require('1.0-beta.11' in (scripts / name).read_text(encoding='utf-8'),
                 f'{name} does not identify beta 1.0')
     print('PASS all 122 Lua modules reachable from init.main; literal requires resolve; beta version matches')
 
 
 def audit_mods():
     mods = []
-    for name, count in [('KenshiShop', 284), ('KenshiShop_LegendaryCompat', 73)]:
+    for name, count in [('KenshiShop', 287), ('KenshiShop_LegendaryCompat', 73)]:
         path = ROOT / name / (name + '.mod')
         mod = km.ler(path)
         require(km.serializar(mod) == path.read_bytes(), f'{name}: binary roundtrip differs')

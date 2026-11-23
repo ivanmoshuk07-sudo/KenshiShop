@@ -8,7 +8,7 @@ local function isRetired(building)
  local h=building and building:getHandle()
  return Store.evacuationCorrupt() or (h and Store.retiredBuilding(h:toString()))
 end
-local M={version='1.0-beta.10'}
+local M={version='1.0-beta.11'}
 local started=false
 local npcLoadedLogged={}
 function M.start()

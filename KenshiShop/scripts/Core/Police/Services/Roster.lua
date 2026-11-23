@@ -114,6 +114,40 @@ function M.platoons()
  if not w then return {},false,'WORLD_UNAVAILABLE' end
  return lists(w)
 end
+function M.hiredInTown(townID)
+ local grouped,complete,why=M.platoons()
+ if not complete then return nil,why end
+ local seen,patrols={},{}
+ for _,list in ipairs(grouped)do
+  for _,p in ipairs(list)do
+   if dataID(field(p,'squadTemplate'))==Config.hired then
+    local pid=platoonID(p)
+    if not pid or factionID(p)~=Config.faction then return nil,'HIRED_NATIVE_ID_UNVERIFIED' end
+    if not seen[pid] and not Store.retiredPlatoon(pid) and field(p,'isDead')~=true then
+     seen[pid]=true
+     local house=homeHandle(p)
+     local key=handleID(house)
+     local building=call(house,'getBuilding')
+     local town=id(call(building,'getTown'))
+     local recorded=Store.get().patrols[pid]
+     if not town and not (key and recorded and recorded.building==key) then
+      return nil,'HIRED_NATIVE_HOME_UNVERIFIED'
+     end
+     if town==townID then
+      if not key or call(building,'isValid')~=true or id(building)~=key
+       or dataID(call(building,'getGameData'))~=Config.tower or Store.retiredBuilding(key) then
+       return nil,'HIRED_NATIVE_TOWER_UNVERIFIED'
+      end
+      rememberBuilding(building,key)
+      patrols[#patrols+1]={pid=pid,building=key,town=townID}
+     end
+    end
+   end
+  end
+ end
+ table.sort(patrols,function(a,b)return a.pid<b.pid end)
+ return patrols
+end
 function M.findPlatoon(pid)
  pid=text(pid);if not pid then return nil,'PLATOON_ID_UNAVAILABLE' end
  local w=world();if not w then return nil,'WORLD_UNAVAILABLE' end

@@ -18,6 +18,10 @@ local EXIT='11222-KenshiShop.mod'
 local EVACUATION_PROMPT='11300-KenshiShop.mod'
 local CONFIRM_EVACUATION='11301-KenshiShop.mod'
 local CANCEL_EVACUATION='11302-KenshiShop.mod'
+local HIRE_PROMPT='11400-KenshiShop.mod'
+local CONFIRM_HIRE='11401-KenshiShop.mod'
+local CANCEL_HIRE='11402-KenshiShop.mod'
+local LEGACY_ORDER=' Старые записи об оплате повреждены. Этот заказ будет записан отдельно.'
 local SIZE=6
 local attached={}
 local started=false
@@ -113,7 +117,7 @@ local function collect(dialogue)
    if list then for i=1,#list do todo[#todo+1]=list[i]end end
   end
  end
- for _,key in ipairs({LIST,PREV,NEXT,EXIT,EVACUATION_PROMPT,CONFIRM_EVACUATION,CANCEL_EVACUATION})do
+ for _,key in ipairs({LIST,PREV,NEXT,EXIT,EVACUATION_PROMPT,CONFIRM_EVACUATION,CANCEL_EVACUATION,HIRE_PROMPT,CONFIRM_HIRE,CANCEL_HIRE})do
   assert(nodes[key],'CHIEF_SELECTION_NODE_MISSING '..key)
  end
  for n=0,SIZE-1 do
@@ -197,14 +201,15 @@ end
 local function selectedLine(key)
  return key==LIST or key==PREV or key==NEXT or key==EXIT
   or key==EVACUATION_PROMPT or key==CONFIRM_EVACUATION or key==CANCEL_EVACUATION
+  or key==HIRE_PROMPT or key==CONFIRM_HIRE or key==CANCEL_HIRE
   or band(key,11210) or band(key,11230) or band(key,11240) or band(key,11250)
 end
 local function inView(dialogue,line,parentKey)
  local current=field(dialogue,'currentLine')
  return current==line or call(current,'getStringID')==parentKey
 end
-local function request(api,action,chief,player,key,selected)
- local ok,why=api.request(action,chief,player,selected)
+local function request(api,action,chief,player,key,selected,newLedger)
+ local ok,why=api.request(action,chief,player,selected,newLedger)
  Log.console('NPC_CHIEF_DIALOGUE_REQUEST line='..key..' action='..action..' queued='..tostring(ok==true)
   ..' reason='..tostring(why or 'NONE'))
  if ok~=true then error('CHIEF_DIALOGUE_REQUEST_FAILED '..tostring(why),0)end
@@ -215,7 +220,7 @@ local function dispatch(api,dialogue,line)
  if key~=GREETING and not menuReply and not selectedLine(key) then return end
  local chief,player,chiefKey,playerKey=context(dialogue)
  if not chief then
-  if menuReply or key==CONFIRM_EVACUATION or band(key,11240) then
+  if menuReply or key==CONFIRM_EVACUATION or key==CONFIRM_HIRE or band(key,11240) then
    Log.console('NPC_CHIEF_DIALOGUE_CONTEXT_MISSING line='..key)
   end
   return
@@ -230,11 +235,13 @@ local function dispatch(api,dialogue,line)
  local s=active
  if not matches(s,dialogue,chiefKey,playerKey) then return end
  if menuReply and s.phase~='menu' then return end
- if key==HIRE or key==LEAVE then
-  s.phase='finished'
-  if key==HIRE then
-   request(api,'hire',chief,player,key)
-  end
+ if key==LEAVE then s.phase='finished';return end
+ if key==HIRE then
+  s.nodes=collect(dialogue)
+  s.newLedger=api.newLedgerOffered()
+  local quote='Три патрульных за 20 000 кат. Днём они стоят у башни, ночью патрулируют.'
+  text(s.nodes[HIRE_PROMPT],quote..(s.newLedger and LEGACY_ORDER or '')..' Подтверждаешь?')
+  advance(s,s.nodes[HIRE_PROMPT],'hire',true)
   return
  end
  if key==EVACUATE then
@@ -249,7 +256,13 @@ local function dispatch(api,dialogue,line)
   advance(s,s.nodes[LIST],'list',true);return
  end
  if not s.nodes or s.nodes[key]~=line then return end
- if key==LIST or key==EVACUATION_PROMPT or band(key,11230) then return end
+ if key==LIST or key==EVACUATION_PROMPT or key==HIRE_PROMPT or band(key,11230) then return end
+ if key==CONFIRM_HIRE or key==CANCEL_HIRE then
+  if s.phase~='hire' or not inView(dialogue,line,HIRE_PROMPT) then return end
+  s.phase='finished';queued=nil
+  if key==CONFIRM_HIRE then request(api,'hire',chief,player,key,nil,s.newLedger) end
+  return
+ end
  if key==CONFIRM_EVACUATION or key==CANCEL_EVACUATION then
   if s.phase~='evacuation' or not inView(dialogue,line,EVACUATION_PROMPT) then return end
   s.phase='finished';queued=nil
@@ -272,10 +285,10 @@ local function dispatch(api,dialogue,line)
   if s.phase~='list' or invoke(dialogue,'isLocked',line) then return end
   local row=s.slots[slot];if not row then return end
   -- Copy strings, rather than retaining a mutable roster row or page index.
-  s.selected={id=row.id,label=row.label,slot=slot,replaceable=row.replaceable}
+  s.selected={id=row.id,label=row.label,slot=slot,replaceable=row.replaceable,newLedger=row.replaceable and api.newLedgerOffered()}
   local question=row.replaceable and 'Нанять замену для «'..row.label..'» за 10 000 кат?'
    or '«'..row.label..'». Замена пока недоступна.'
-  text(s.nodes[sid(11230+slot-1)],question)
+  text(s.nodes[sid(11230+slot-1)],question..(s.selected.newLedger and LEGACY_ORDER or ''))
   text(s.nodes[sid(11240+slot-1)],'Да, нанять «'..row.label..'» за 10 000 кат.')
   locked(s,s.nodes[sid(11240+slot-1)],not row.replaceable)
   locked(s,s.nodes[sid(11250+slot-1)],false)
@@ -294,7 +307,7 @@ local function dispatch(api,dialogue,line)
  if not selected.replaceable then return end
  local deathID=selected.id
  s.phase='finished';queued=nil
- request(api,'replace',chief,player,key,deathID)
+ request(api,'replace',chief,player,key,deathID,selected.newLedger)
 end
 local function openQueued()
  local job=queued;if not job then return end
@@ -334,7 +347,8 @@ local function openQueued()
  end
 end
 function M.start(api)
- assert(type(api)=='table' and type(api.request)=='function' and type(api.listLosses)=='function','CHIEF_SERVICE_API_REQUIRED')
+ assert(type(api)=='table' and type(api.request)=='function' and type(api.listLosses)=='function'
+  and type(api.newLedgerOffered)=='function','CHIEF_SERVICE_API_REQUIRED')
  if started then return true end
  local actionHook=Events.on('Dialogue::_doActions',function(dialogue,line)
   local ok,why=pcall(dispatch,api,dialogue,line)

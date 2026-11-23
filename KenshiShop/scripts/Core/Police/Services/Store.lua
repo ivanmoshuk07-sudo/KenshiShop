@@ -3,6 +3,8 @@
 local M={}
 local KEY='KenshiShopChiefStateV1'
 local RECOVERY_KEY=KEY..'Recovery'
+local ORDERS_KEY=KEY..'Orders'
+local ORDERS_FAILURE_KEY=ORDERS_KEY..'Failure'
 local EVACUATION_KEY=KEY..'Departures'
 local MAGIC='KSCS1:'
 local ENVELOPE='KSCS2:'
@@ -19,9 +21,11 @@ local MAX_DEPTH=12
 local MAX_ENTRIES=20000
 local state,ready,held,diagnostic
 local departure,departureReady,departureHeld
+local newOrders,newOrdersHeld
 local function blank()return {version=1,seq=0,roster={},orders={},patrols={}}end
 function M.reset()
  state=blank();ready=false;held=nil
+ newOrders=false;newOrdersHeld=nil
  departure={evacuations={},buildings={},squads={}};departureReady=false;departureHeld=nil
  state.evacuations=departure.evacuations
  diagnostic={error=nil,source='NONE',format='NONE',bytes=0,preserved=false,historyMarker=false}
@@ -29,11 +33,24 @@ end
 M.reset()
 function M.get()return state end
 function M.ready()return ready and departureReady end
+function M.legacyOrdersArchived()return newOrders end
+function M.canStartNewOrders()
+ return not ready and not newOrders and departureReady and held~=nil
+  and diagnostic.legacyClip==true and diagnostic.prefixError=='STORE_TRUNCATED'
+end
+function M.startNewOrders()
+ if not M.canStartNewOrders() then return false,'STORE_NEW_ORDERS_UNAVAILABLE' end
+ state.orders={};state.patrols={};state.seq=0;state.partialRoster=true
+ newOrders=true;ready=true
+ diagnostic.legacyError=diagnostic.error;diagnostic.error=nil;diagnostic.source='NEW_ORDERS'
+ return true
+end
 function M.status()
  return {ready=M.ready(),error=diagnostic.error,source=diagnostic.source,format=diagnostic.format,
   bytes=diagnostic.bytes,held=held~=nil,preserved=diagnostic.preserved,saveError=diagnostic.saveError,
   historyMarker=diagnostic.historyMarker,partialRoster=state.partialRoster==true,
-  departureError=diagnostic.departureError,prefixError=diagnostic.prefixError}
+  departureError=diagnostic.departureError,prefixError=diagnostic.prefixError,
+  legacyError=diagnostic.legacyError,newOrders=newOrders}
 end
 function M.diagnostics()
  local d=M.status()
@@ -42,6 +59,7 @@ function M.diagnostics()
   ..' history_marker='..tostring(d.historyMarker)..' partial_roster='..tostring(d.partialRoster)
   ..' departure_error='..tostring(d.departureError or 'NONE')
   ..' prefix_error='..tostring(d.prefixError or 'NONE')
+  ..' new_orders='..tostring(d.newOrders)..' legacy_error='..tostring(d.legacyError or 'NONE')
 end
 local function fail(message)error(message,0)end
 local function finite(n)return n==n and n~=math.huge and n~=-math.huge end
@@ -230,7 +248,7 @@ local function decodeClippedEnvelope(source,prefix)
 end
 local statuses={pending_payment=true,pending=true,refund_pending=true,refunded=true,cancelled=true,complete=true}
 local prices={hire=20000,replace=10000}
-local function recoverClipped(saved)
+local function clippedSource(saved)
  if type(saved)~='string' or #saved~=4095 then fail('STORE_NOT_NATIVE_CLIP')end
  local raw=saved
  -- Pre-chunk releases could re-wrap already-clipped fields each time the
@@ -244,6 +262,14 @@ local function recoverClipped(saved)
   raw=decodeClippedEnvelope(raw,ENVELOPE)
   if raw==nil then fail('STORE_PREFIX_ENVELOPE_INVALID')end
  end
+ return raw
+end
+local function recoverClipped(saved)
+ local raw=clippedSource(saved)
+ -- Old saves used sorted keys with a fixed five-field header. Verify the
+ -- remaining bytes agree with that header before offering a new ledger.
+ local signature=MAGIC..'T5:S6:ordersT'
+ diagnostic.legacyClip=#raw>=#MAGIC and raw:sub(1,math.min(#raw,#signature))==signature:sub(1,#raw)
  local value=decode(raw,true)
  schema(value)
  local largest,n=0,0
@@ -473,20 +499,18 @@ local function saveDepartures(gameData)
  departureSchema(departure)
  writeTransport(gameData,EVACUATION_KEY,envelope(encode(departure),ENVELOPE))
 end
-local function failureMarker(gameData,why)
+local function failureMarker(gameData,why,key)
  -- A failed encode/write must not make the next native save look like a new
  -- campaign. The bounded marker preserves uncertainty, not the missing data.
  local saved=envelope(UNRESOLVED..tostring(why):sub(1,512),RECOVERY)
- writeTransport(gameData,RECOVERY_KEY,saved)
+ writeTransport(gameData,key or RECOVERY_KEY,saved)
 end
 local function loaded(value)
  state=value;state.evacuations=departure.evacuations;ready=true
  if diagnostic.departureError then return false,'STORE_DEPARTURE_HELD '..diagnostic.departureError end
  return true
 end
-function M.load(gameData)
- M.reset()
- loadDepartures(gameData)
+local function loadLegacy(gameData)
  local saved
  local ok,result=pcall(function()
   if not gameData or not gameData.sdata then fail('STORE_GAME_DATA_UNAVAILABLE')end
@@ -557,40 +581,99 @@ function M.load(gameData)
  end
  return loaded(result)
 end
+
+function M.load(gameData)
+ M.reset()
+ loadDepartures(gameData)
+ local legacyOK,legacyError=loadLegacy(gameData)
+ local fields=gameData and gameData.sdata
+ if not fields then return legacyOK,legacyError end
+ local header=fields[ORDERS_KEY]
+ local marker=fields[ORDERS_FAILURE_KEY]
+ if header==nil and marker==nil then
+  local seen=false
+  for key in pairs(fields)do
+   if chunkIndex(key,ORDERS_KEY) then seen=true;break end
+  end
+  if not seen then return legacyOK,legacyError end
+ end
+
+ newOrders=true;ready=false
+ state=blank();state.evacuations=departure.evacuations;state.partialRoster=true
+ diagnostic.legacyError=legacyError;diagnostic.source='NEW_ORDERS'
+ local ok,result=pcall(function()
+  if header==nil then fail('STORE_CHUNK_MANIFEST_MISSING')end
+  local saved=readTransport(fields,ORDERS_KEY,header)
+  if type(saved)=='string' then newOrdersHeld=saved end
+  if marker~=nil then fail('STORE_NEW_ORDERS_HISTORY_UNRESOLVED')end
+  if format(saved)~='ASCII_HEX' then fail('STORE_NEW_ORDERS_FORMAT_INVALID')end
+  local value=readSaved(saved)
+  if value.partialRoster~=true then fail('STORE_NEW_ORDERS_SCOPE_INVALID')end
+  return value
+ end)
+ diagnostic.error=not ok and ('STORE_NEW_ORDERS_HELD '..tostring(result)) or nil
+ diagnostic.historyMarker=marker~=nil
+ if not ok then return false,diagnostic.error end
+ newOrdersHeld=nil
+ return loaded(result)
+end
+
+local function saveHeld(gameData)
+ diagnostic.preserved=false
+ local ok,why=pcall(function()
+  local saved=held.envelope
+  if not saved then
+   -- Preserve an oversized ASCII source verbatim to keep it bounded.
+   local raw=held.raw
+   if #raw>MAX_BYTES and #raw<=MAX_TRANSPORT
+    and not raw:find('[^\32-\126]') then saved=raw
+   else saved=envelope(raw,RECOVERY)end
+  end
+  writeTransport(gameData,RECOVERY_KEY,saved)
+  held.envelope=saved;diagnostic.preserved=not held.marker
+ end)
+ diagnostic.saveError=not ok and tostring(why) or nil
+ if ok then
+  if not newOrders then diagnostic.historyMarker=held.marker==true end
+  return true
+ end
+ if newOrders then return false,'STORE_ARCHIVE_SAVE_FAILED '..tostring(why)end
+ local marked,problem=pcall(failureMarker,gameData,diagnostic.error..' preservation='..tostring(why))
+ diagnostic.historyMarker=marked or diagnostic.historyMarker
+ if marked then return false,'STORE_HELD_MARKER_ONLY '..tostring(why)end
+ return false,'STORE_HELD_UNPRESERVED '..tostring(why)..' recovery='..tostring(problem)
+end
+
+local function markFailedNewOrders(gameData,why)
+ if not newOrders then return end
+ local marked=pcall(failureMarker,gameData,why,ORDERS_FAILURE_KEY)
+ diagnostic.historyMarker=marked or diagnostic.historyMarker
+end
+
 function M.save(gameData)
- if ready or held then
+ if ready or held or newOrders then
   local departureSaved,why=pcall(saveDepartures,gameData)
   if not departureSaved then
    diagnostic.saveError=tostring(why)
+   markFailedNewOrders(gameData,why)
    return false,'STORE_DEPARTURE_SAVE_FAILED '..tostring(why)
   end
  end
+ if held then
+  local ok,why=saveHeld(gameData)
+  if not ok then markFailedNewOrders(gameData,why);return false,why end
+ end
  if not ready then
-  if not held then return false,'STORE_NOT_READY'end
-  diagnostic.preserved=false
+  if not newOrders then return false,held and 'STORE_HELD' or 'STORE_NOT_READY' end
   local ok,why=pcall(function()
-   local saved=held.envelope
-   if not saved then
-    -- Preserve an oversized but already ASCII source verbatim;
-    -- wrapping it again would expand it on every failed load/save cycle.
-    local raw=held.raw
-    if #raw>MAX_BYTES and #raw<=MAX_TRANSPORT
-     and not raw:find('[^\32-\126]') then saved=raw
-    else saved=envelope(raw,RECOVERY)end
-   end
-   writeTransport(gameData,RECOVERY_KEY,saved)
-   held.envelope=saved;diagnostic.preserved=not held.marker
-   diagnostic.historyMarker=held.marker==true
+   if newOrdersHeld then writeTransport(gameData,ORDERS_KEY,newOrdersHeld)end
+   failureMarker(gameData,diagnostic.error,ORDERS_FAILURE_KEY)
   end)
   diagnostic.saveError=not ok and tostring(why) or nil
-  if not ok then
-   local marked,problem=pcall(failureMarker,gameData,diagnostic.error..' preservation='..tostring(why))
-   diagnostic.historyMarker=marked or diagnostic.historyMarker
-   if marked then return false,'STORE_HELD_MARKER_ONLY '..tostring(why)end
-   return false,'STORE_HELD_UNPRESERVED '..tostring(why)..' recovery='..tostring(problem)
-  end
-  return false,'STORE_HELD'
+  return false,not ok and ('STORE_NEW_ORDERS_SAVE_FAILED '..tostring(why)) or 'STORE_NEW_ORDERS_HELD'
  end
+ local key=newOrders and ORDERS_KEY or KEY
+ local failureKey=newOrders and ORDERS_FAILURE_KEY or RECOVERY_KEY
  local ok,result=pcall(function()
   schema(state)
   -- KenshiLua string writers consume C strings. An ASCII envelope preserves
@@ -599,20 +682,20 @@ function M.save(gameData)
   -- its own native field and never snapshot it as part of a payment receipt.
   local saved={version=state.version,seq=state.seq,roster=state.roster,orders=state.orders,
    patrols=state.patrols,partialRoster=state.partialRoster}
-  writeTransport(gameData,KEY,envelope(encode(saved),ENVELOPE),true)
+  writeTransport(gameData,key,envelope(encode(saved),ENVELOPE),not newOrders)
   -- Only this still-ready session owns the complete current state. After its
   -- verified write it may remove an earlier transient failure marker; a load
   -- of an uncertain recovery field never reaches this branch.
   local fields=gameData.sdata
-  if fields[RECOVERY_KEY]~=nil then
-   fields[RECOVERY_KEY]=nil
-   if fields[RECOVERY_KEY]~=nil then fail('STORE_RECOVERY_CLEAR_FAILED')end
+  if fields[failureKey]~=nil then
+   fields[failureKey]=nil
+   if fields[failureKey]~=nil then fail('STORE_RECOVERY_CLEAR_FAILED')end
   end
   return true
  end)
  diagnostic.saveError=not ok and tostring(result) or nil
  if not ok then
-  local marked,problem=pcall(failureMarker,gameData,result)
+  local marked,problem=pcall(failureMarker,gameData,result,failureKey)
   diagnostic.historyMarker=marked or diagnostic.historyMarker
   if marked then return false,tostring(result)end
   return false,'STORE_SAVE_FAILED_UNPRESERVED '..tostring(result)..' recovery='..tostring(problem)

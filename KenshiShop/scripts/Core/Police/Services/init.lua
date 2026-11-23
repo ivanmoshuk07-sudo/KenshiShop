@@ -60,6 +60,9 @@ local function playerWallet(player)
  local balance=Live.call(wallet,'getMoney')
  if type(balance)=='number' and balance==Live.call(player,'getMoney') then return wallet end
 end
+function M.newLedgerOffered()
+ return hooksInstalled and Store.canStartNewOrders()
+end
 local roleNames={trader='Торговец',guard='Охранник',chief='Начальник охраны',patrol='Патрульный'}
 local businessNames={bar='Бар',engineering='Мастерская',armour='Магазин брони',weapons='Оружейная',robotics='Магазин робототехники',police='Охрана города'}
 local function replacementClaimed(selectedID)
@@ -122,7 +125,9 @@ function M.listLosses(chief,player)
    return nil,rosterIncomplete and 'ROSTER_HISTORY_INCOMPLETE' or (scanWhy or 'SCAN_UNAVAILABLE')
   end
  end
- if #rows>0 and (not Store.ready() or not hooksReady) then return rows,'SERVICE_STORE_NOT_READY' end
+ if #rows>0 and (not Store.ready() or not hooksReady) and not M.newLedgerOffered() then
+  return rows,'SERVICE_STORE_NOT_READY'
+ end
  return rows,not scanned and (scanWhy or 'SCAN_UNAVAILABLE') or nil
 end
 local function hiredConfig(pid,row)
@@ -290,6 +295,46 @@ local function indexWork()
  for pid in pairs(Store.get().patrols)do if not attached[pid] then recoverPatrols[pid]=true end end
  indexed=true
 end
+local function prepareNativePatrols(ctx)
+ local existing,why=Roster.hiredInTown(ctx.town)
+ if not existing then return false,why end
+ local saved=Store.get().patrols
+ local last={}
+ for _,row in pairs(saved)do
+  last[row.building]=math.max(last[row.building] or 0,row.number or 0)
+ end
+ ctx.nativePatrols={}
+ for _,row in ipairs(existing)do
+  local prior=saved[row.pid]
+  if prior then
+   if prior.building~=row.building or prior.town~=row.town then return false,'HIRED_NATIVE_HOME_CHANGED' end
+  else
+   row.number=(last[row.building] or 0)+1
+   row.base=row.number*3
+   last[row.building]=row.number
+   ctx.nativePatrols[#ctx.nativePatrols+1]=row
+  end
+ end
+ ctx.nextPatrolNumber=(last[ctx.key] or 0)+1
+ return true
+end
+local function openOrderLedger(ctx)
+ if ctx.openNewLedger then
+  local ok,why=Store.startNewOrders()
+  if not ok then
+   report('NEW_ORDERS_UNAVAILABLE',why)
+   notify('Открыть реестр новых заказов пока не удалось. Деньги не списаны.')
+   return false
+  end
+  hooksReady=hooksInstalled
+  report('NEW_ORDERS_STARTED','town='..ctx.town)
+ end
+ for _,row in ipairs(ctx.nativePatrols or {})do
+  Store.get().patrols[row.pid]=row
+  recoverPatrols[row.pid]=true
+ end
+ return true
+end
 local function replace(ctx,selectedID)
  local record,selectionWhy=selectedLoss(ctx,selectedID)
  if not record then
@@ -301,6 +346,16 @@ local function replace(ctx,selectedID)
  if not p and lookup~='TRUE_NOT_FOUND' then notify('Прежний отряд пока недоступен для проверки. Оплата не списана.');return end
  local plan,why=Recruit.prepare(record,b,p)
  if not plan then report('REPLACEMENT_PREFLIGHT',why);notify('Прежний отряд или место службы пока недоступны для замены. Деньги не списаны.');return end
+ if plan.cfg.serviceHired and not Store.get().patrols[record.pid] then
+  local found=false
+  for _,row in ipairs(ctx.nativePatrols or {})do if row.pid==record.pid then found=true;break end end
+  if not found then
+   report('REPLACEMENT_PREFLIGHT','HIRED_IDENTITY_MISSING')
+   notify('Привязку прежнего патруля пока не удалось подтвердить. Деньги не списаны.')
+   return
+  end
+ end
+ if not openOrderLedger(ctx) then return end
  local order,receipt,reason=Orders.pay('replace','replace:'..record.id,10000,ctx.wallet,
   {building=record.building,town=ctx.town,deadID=record.id},function(tx)
    record.order=tx.id
@@ -325,8 +380,12 @@ local function hire(ctx,nonce)
   or field(Live.call(ctx.chief,'getPlatoon'),'me')
  local residentPID=Live.call(resident,'getPlatoonStringID')
  if not residentPID then notify('Привязка начальника к башне пока недоступна. Деньги не списаны.');return end
- local number=1
- for _,row in pairs(Store.get().patrols)do if row.building==ctx.key then number=math.max(number,(row.number or 0)+1)end end
+ local number=ctx.nextPatrolNumber or 1
+ if not ctx.nextPatrolNumber then
+  for _,row in pairs(Store.get().patrols)do
+   if row.building==ctx.key then number=math.max(number,(row.number or 0)+1)end
+  end
+ end
  local base=number*3
  local cfg=Config.copy(Config.hired);cfg.streetSlotBase=base
  local ok,pre=pcall(Transport.preflight,ctx.building,cfg)
@@ -338,6 +397,7 @@ local function hire(ctx,nonce)
   local node,err=Nodes.target(state,ctx.building,{},index,base+slot)
   if not node then report('HIRED_POST_PREFLIGHT',err);notify('У башни нет трёх доступных мест для дневных постов. Деньги не списаны.');return end
  end
+ if not openOrderLedger(ctx) then return end
  -- The durable sequence prevents a fresh Lua session reusing an earlier
  -- dialogue nonce after loading the same campaign.
  local subject='hire:'..tostring(Store.get().seq+1)..':'..nonce
@@ -369,10 +429,22 @@ local function process(request)
   return
  end
  if Store.evacuation(ctx.town) then notify('Город покидают. Найм закрыт.');return end
- if not hooksReady or not Store.ready() then notify('Данные найма сейчас недоступны. Найм отключён до проверки реестра сохранения. Деньги не списаны.');return end
+ ctx.openNewLedger=request.newLedger and M.newLedgerOffered()
+ if not (hooksReady and Store.ready()) and not ctx.openNewLedger then
+  notify('Данные найма сейчас недоступны. Деньги не списаны.');return
+ end
  ctx.wallet=playerWallet(request.player)
  if not ctx.wallet then report('PLAYER_WALLET_UNVERIFIED');notify('Кошелёк игрока недоступен. Деньги не списаны.');return end
+ local price=request.action=='hire' and 20000 or 10000
+ if Live.call(ctx.wallet,'getMoney')<price then failed(request.action,'INSUFFICIENT_FUNDS');return end
  if pendingUnknown(ctx.town) then notify('Сначала требуется завершить проверку предыдущего оплаченного заказа. Повторной оплаты не будет.');return end
+ if ctx.openNewLedger or Store.legacyOrdersArchived() then
+  local ok,reason=prepareNativePatrols(ctx)
+  if not ok then
+   report('HIRED_NATIVE_SCAN_UNAVAILABLE',reason)
+   notify('Проверка существующих патрулей ещё не завершена. Деньги не списаны.');return
+  end
+ end
  if request.action=='replace' then
   local scanned,scanWhy=Roster.scan(true)
   if not scanned then report('SCAN_UNAVAILABLE',scanWhy);notify('Проверка состава пока не завершена. Деньги не списаны.');return end
@@ -440,12 +512,12 @@ local function scheduleRecovery(now)
  end
  add('patrol',recoverPatrols);add('replace',recoverOrders)
 end
-function M.request(action,chief,player,selectedID)
+function M.request(action,chief,player,selectedID,newLedger)
  if action~='replace' and action~='hire' and action~='evacuate' then return false,'UNKNOWN_SERVICE'end
  if action=='replace' and (type(selectedID)~='string' or selectedID=='') then return false,'LOSS_SELECTION_REQUIRED'end
  if #queue>=8 then return false,'SERVICE_QUEUE_FULL'end
  sequence=sequence+1
- queue[#queue+1]={action=action,chief=chief,player=player,selectedID=selectedID,nonce=tostring(epoch)..':'..sequence}
+ queue[#queue+1]={action=action,chief=chief,player=player,selectedID=selectedID,newLedger=newLedger==true,nonce=tostring(epoch)..':'..sequence}
  return true
 end
 local function stopTownServices(town,plan)

@@ -4,13 +4,17 @@ local Store=require('Core.Police.Services.Store')
 local KEY='KenshiShopChiefStateV1'
 local RECOVERY_KEY=KEY..'Recovery'
 local EVACUATION_KEY=KEY..'Departures'
+local ORDERS_KEY=KEY..'Orders'
+local ORDERS_FAILURE_KEY=ORDERS_KEY..'Failure'
 local LEGACY_BLANK='KSCS1:T5:S6:ordersT0:S7:patrolsT0:S6:rosterT0:S3:seqN1:0S7:versionN1:1'
 local count=0
 local function test(name,fn)fn();count=count+1;print('PASS '..name)end
 local function ownField(key)
- return key==KEY or key==RECOVERY_KEY or key==EVACUATION_KEY or key:match('^'..KEY..'Chunk%d+$')
+ return key==KEY or key==RECOVERY_KEY or key==EVACUATION_KEY or key==ORDERS_KEY or key==ORDERS_FAILURE_KEY
+  or key:match('^'..KEY..'Chunk%d+$')
   or key:match('^'..RECOVERY_KEY..'Chunk%d+$')
   or key:match('^'..EVACUATION_KEY..'Chunk%d+$')
+  or key:match('^'..ORDERS_KEY..'Chunk%d+$')
 end
 local function data(saved)
  return {sdata=saved and {[KEY]=saved} or {},writes=0,
@@ -314,6 +318,81 @@ test('clipped receipts with a hole or missing hire identity cannot activate paym
  state.patrols.hires=nil;assert(Store.save(gd))
  oldFile=reloadFromNativeDisk({[KEY]=wirePayload(storage,KEY)})
  assert(not Store.load(oldFile) and not Store.ready())
+end)
+local function deeplyClippedHistory()
+ -- Match the old save path: one clipped ASCII payload, six clipped recovery
+ -- envelopes, then the verified outer recovery transported in three chunks.
+ local legacy='KSCS1:T5:S6:ordersT0:S7:patrolsT0:S6:rosterT1:S4:tailS2522:'
+  ..string.rep('x',2522)..'S3:seqN1:0S7:versionN1:1'
+ local clipped=wrapRecovery(legacy):gsub('^KSHOLD2:','KSCS2:'):sub(1,4095)
+ for _=1,6 do clipped=wrapRecovery(clipped):sub(1,4095)end
+ local archive=wrapRecovery(clipped)
+ local size,digest=wrapRecovery(archive):match('^KSHOLD2:(%d+):(%d+):')
+ local fields={[RECOVERY_KEY]='KSCH3:'..size..':'..digest}
+ for offset=1,#archive,3000 do
+  fields[RECOVERY_KEY..'Chunk'..(1+(offset-1)//3000)]=archive:sub(offset,offset+2999)
+ end
+ return fields,archive
+end
+test('confirmed new orders preserve the clipped legacy archive and use an independent ledger',function()
+ local old,archive=deeplyClippedHistory()
+ assert(not Store.load(reloadFromNativeDisk(old)) and not Store.ready() and not Store.legacyOrdersArchived())
+ assert(Store.canStartNewOrders() and Store.status().prefixError=='STORE_TRUNCATED',Store.diagnostics())
+ local before=Store.get()
+ before.roster.live={dead=false}
+ assert(Store.startNewOrders() and Store.ready() and Store.legacyOrdersArchived())
+ assert(not Store.canStartNewOrders() and not Store.startNewOrders())
+ assert(Store.get()==before and before.partialRoster and before.roster.live and before.seq==0)
+ assert(next(before.orders)==nil and next(before.patrols)==nil)
+ before.seq=1;before.orders['1']={id='1',kind='hire',cost=20000,status='complete'}
+ before.roster.large=string.rep('member',900)
+ local gd,saved=nativeData()
+ assert(Store.save(gd) and saved[ORDERS_KEY]:find('^KSCH3:') and not saved[KEY])
+ assert(wirePayload(saved,RECOVERY_KEY)==archive)
+ assert(Store.load(reloadFromNativeDisk(saved)) and Store.ready() and Store.status().source=='NEW_ORDERS')
+ assert(Store.legacyOrdersArchived() and Store.get().orders['1'].cost==20000 and Store.get().seq==1)
+ local nextGD,nextFields=nativeData()
+ assert(Store.save(nextGD) and wirePayload(nextFields,RECOVERY_KEY)==archive)
+end)
+test('unrecognized or unrelated damaged legacy state does not authorize a new ledger',function()
+ local unknown=string.rep('x',4095)
+ local syntaxError=('KSCS1:T5:S6:ordersTx'..unknown):sub(1,4095)
+ for _,value in ipairs({unknown,syntaxError,LEGACY_BLANK:sub(1,30)})do
+  assert(not Store.load(data(value)) and not Store.ready())
+  assert(not Store.canStartNewOrders() and not Store.startNewOrders() and not Store.legacyOrdersArchived())
+ end
+end)
+test('current order save failures close a stale ledger while leaving the legacy evidence untouched',function()
+ local old,archive=deeplyClippedHistory()
+ assert(not Store.load(reloadFromNativeDisk(old)) and Store.startNewOrders())
+ local gd,saved=nativeData();assert(Store.save(gd))
+ local prior=saved[ORDERS_KEY]
+ Store.get().seq=1;Store.get().orders['1']={id='1',cost=20000,status='pending'}
+ local add=gd.addString
+ gd.addString=function(self,key,...)
+  if key==ORDERS_KEY then error('CURRENT_WRITE_UNAVAILABLE')end
+  return add(self,key,...)
+ end
+ assert(not Store.save(gd) and Store.get().orders['1'].cost==20000)
+ assert(saved[ORDERS_KEY]==prior and saved[ORDERS_FAILURE_KEY] and wirePayload(saved,RECOVERY_KEY)==archive)
+ local ok,reason=Store.load(reloadFromNativeDisk(saved))
+ assert(not ok and reason:find('STORE_NEW_ORDERS_HISTORY_UNRESOLVED',1,true))
+ assert(Store.legacyOrdersArchived() and not Store.canStartNewOrders() and not Store.startNewOrders())
+ local retry,fields=nativeData()
+ assert(select(2,Store.save(retry))=='STORE_NEW_ORDERS_HELD' and fields[ORDERS_FAILURE_KEY])
+ assert(wirePayload(fields,RECOVERY_KEY)==archive and not Store.load(reloadFromNativeDisk(fields)))
+end)
+test('a missing current manifest with surviving chunks cannot reopen the legacy activation',function()
+ local old=deeplyClippedHistory();old[ORDERS_KEY..'Chunk2']='remaining paid history'
+ local ok,reason=Store.load(reloadFromNativeDisk(old))
+ assert(not ok and reason:find('STORE_CHUNK_MANIFEST_MISSING',1,true))
+ assert(Store.legacyOrdersArchived() and not Store.canStartNewOrders() and not Store.startNewOrders())
+end)
+test('a damaged current payload holds payment even if legacy activation would otherwise be available',function()
+ local old=deeplyClippedHistory();old[ORDERS_KEY]='corrupt current data'
+ local ok,reason=Store.load(reloadFromNativeDisk(old))
+ assert(not ok and reason:find('STORE_NEW_ORDERS_FORMAT_INVALID',1,true))
+ assert(Store.legacyOrdersArchived() and not Store.ready() and not Store.startNewOrders())
 end)
 test('invalid, missing and mutated parts prevent an incomplete paid history from opening',function()
  local gd,storage=nativeData();assert(Store.load(gd))

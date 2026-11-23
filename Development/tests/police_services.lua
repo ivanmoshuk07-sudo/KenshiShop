@@ -14,6 +14,7 @@ local blockPosts,waitFinish,unknownMember,scanAvailable=false,false,false,true
 local lastSpawnRecord,lastSpawnTemplate
 local dialogueAttaches,rosterObservations=0,0
 local native,buildings,monitors,stopped={},{},{},{}
+local priorPatrols,patrolsAvailable={},true
 local function hand(key,object)
  return {toString=function()return key end,isNull=function()return key==nil end,
  getBuilding=function()return object end,getCharacter=function()return object end}
@@ -47,6 +48,7 @@ package.loaded['Core.NPC.LiveState']=Live
 local Roster={}
 function Roster.scan()scans=scans+1;return scanAvailable,'SCAN_UNAVAILABLE'end
 function Roster.reset()end
+function Roster.hiredInTown()if patrolsAvailable then return priorPatrols end;return nil,'NATIVE_CENSUS_PENDING'end
 function Roster.building(key)return buildings[key]end
 function Roster.findPlatoon(pid)lookups=lookups+1;return native[pid],native[pid] and nil or 'TRUE_NOT_FOUND'end
 function Roster.observe()rosterObservations=rosterObservations+1;return true end
@@ -129,7 +131,7 @@ local function fixture()
  tower:setResidentSquad(original)
  clock=100;bank=100000;spawns=0;adopts=0;finishes=0;postChecks=0;logs={};notices={}
  lastSpawnRecord=nil;lastSpawnTemplate=nil
- dialogueAttaches=0;rosterObservations=0
+ dialogueAttaches=0;rosterObservations=0;priorPatrols={};patrolsAvailable=true
  blockPosts=false;waitFinish=false;unknownMember=false;scanAvailable=true
  mayDepart=true;mayReturn=true;departChecks=0;propertyReturns=0
  emit('PlayerInterface::loadFromSerialise',{},data())
@@ -144,7 +146,7 @@ local function loss(key,changes)
 end
 local count=0
 local function test(name,fn)fn();count=count+1;print('PASS '..name)end
-local function click(action,selectedID)assert(Services.request(action,chief,player,selectedID));Services.tick()end
+local function click(action,selectedID,fresh)assert(Services.request(action,chief,player,selectedID,fresh));Services.tick()end
 local function recover()
  clock=clock+11;for i=1,64 do Services.tick()end
 end
@@ -432,6 +434,57 @@ test('a new campaign first save recovers hook readiness after a prior corrupt ca
  Services.resetSession();emit('PlayerInterface::serialise',{},data())
  assert(Store.ready());click('hire')
  assert(bank==80000 and spawns==1 and Store.get().orders['1'].status=='complete')
+end)
+local function clippedSave()
+ local function envelope(tag,raw)
+  local a,b=1,0
+  local hex=raw:gsub('.',function(char)
+   a=(a+char:byte())%65521;b=(b+a)%65521
+   return string.format('%02x',char:byte())
+  end)
+  return tag..#raw..':'..(b*65536+a)..':'..hex
+ end
+ local legacy='KSCS1:T5:S6:ordersT0:S7:patrolsT0:S6:rosterT1:S4:tailS2522:'
+  ..string.rep('x',2522)..'S3:seqN1:0S7:versionN1:1'
+ local clipped=envelope('KSCS2:',legacy):sub(1,4095)
+ for _=1,6 do clipped=envelope('KSHOLD2:',clipped):sub(1,4095)end
+ local result=data();local archive=envelope('KSHOLD2:',clipped)
+ local size,digest=envelope('KSHOLD2:',archive):match('^KSHOLD2:(%d+):(%d+):')
+ local key='KenshiShopChiefStateV1Recovery'
+ result.sdata[key]='KSCH3:'..size..':'..digest
+ for start=1,#archive,3000 do result.sdata[key..'Chunk'..(1+(start-1)//3000)]=archive:sub(start,start+2999)end
+ return result
+end
+test('explicit new hire opens a separate ledger only after funds and native preflight',function()
+ fixture();emit('PlayerInterface::loadFromSerialise',{},clippedSave());assert(Services.newLedgerOffered())
+ click('hire');assert(bank==100000 and spawns==0 and not Store.ready())
+ bank=15574;click('hire',nil,true);assert(bank==15574 and spawns==0 and not Store.ready())
+ bank=100000;patrolsAvailable=false;click('hire',nil,true);assert(bank==100000 and spawns==0 and not Store.ready())
+ patrolsAvailable=true;blockPosts=true;click('hire',nil,true);assert(bank==100000 and spawns==0 and not Store.ready())
+ priorPatrols={{pid='old-live',building='tower',town='city'}}
+ native['old-live']={getPlatoonStringID=function()return 'old-live'end}
+ blockPosts=false;click('hire',nil,true)
+ assert(Store.ready() and Store.legacyOrdersArchived() and bank==80000 and spawns==1)
+ assert(Store.get().patrols['old-live'].base==3 and Store.get().patrols['old-live'].order==nil)
+ assert(Store.get().patrols.hired1.base==6 and Store.get().orders['1'].cost==20000)
+ recover();assert(monitors['old-live'] and bank==80000 and spawns==1)
+ local save=data();emit('PlayerInterface::serialise',{},save);emit('PlayerInterface::loadFromSerialise',{},save)
+ assert(Store.ready() and Store.legacyOrdersArchived() and not Services.newLedgerOffered())
+ click('hire');assert(bank==60000 and spawns==2 and Store.get().patrols.hired2.base==9)
+end)
+test('a confirmed casualty replacement can be the first new order',function()
+ fixture();emit('PlayerInterface::loadFromSerialise',{},clippedSave());loss('verified')
+ local rows,why=Services.listLosses(chief,player)
+ assert(#rows==1 and rows[1].id=='verified' and why==nil)
+ click('replace','verified',true)
+ assert(Store.ready() and Store.legacyOrdersArchived() and bank==90000 and spawns==1)
+ assert(Store.get().orders['1'].kind=='replace' and lastSpawnRecord=='verified')
+end)
+test('replacement in an unidentified old hired squad never opens the ledger or charges',function()
+ fixture();emit('PlayerInterface::loadFromSerialise',{},clippedSave())
+ loss('unbound-hired',{pid='missing-hired',squadTemplate=Config.hired,building='tower'})
+ click('replace','unbound-hired',true)
+ assert(not Store.ready() and not Store.legacyOrdersArchived() and bank==100000 and spawns==0)
 end)
 test('a later verified save reenables purchases after a transient native save failure',function()
  fixture();local bad=data();bad.addString=function()error('temporary native write failure')end
