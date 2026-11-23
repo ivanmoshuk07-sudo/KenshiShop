@@ -6,6 +6,8 @@ local Roster=require('Core.Police.Services.Roster')
 local Orders=require('Core.Police.Services.Orders')
 local Dialogue=require('Core.Police.Services.Dialogue')
 local Recruit=require('Core.Police.Services.Recruit')
+local Evacuation=require('Core.Police.Services.Evacuation')
+local PropertyReturn=require('Core.Police.Services.PropertyReturn')
 local Controller=require('Core.NPC.Controller')
 local Transport=require('Core.NPC.Transport')
 local Nodes=require('Core.NPC.NativeNodes')
@@ -49,11 +51,14 @@ local function context(chief,player)
  local town=Live.call(building,'getTown')
  if not building or Live.call(building,'isValid')~=true or sid(building)~=Config.tower
   or Live.call(Live.call(town,'getFaction'),'isThePlayer')~=true then return nil,'CHIEF_TOWER_UNAVAILABLE'end
- local wallet=field(Live.call(player,'getFaction'),'factionOwnerships')
- if not wallet or Live.call(wallet,'getMoney')~=Live.call(player,'getMoney') then return nil,'PLAYER_WALLET_UNVERIFIED'end
  local key,townID=id(building),id(town)
  if type(key)~='string' or key=='' or type(townID)~='string' or townID=='' then return nil,'CHIEF_TOWN_UNAVAILABLE'end
- return {chief=chief,player=player,building=building,key=key,town=townID,wallet=wallet}
+ return {chief=chief,player=player,building=building,key=key,town=townID,townObject=town}
+end
+local function playerWallet(player)
+ local wallet=field(Live.call(player,'getFaction'),'factionOwnerships')
+ local balance=Live.call(wallet,'getMoney')
+ if type(balance)=='number' and balance==Live.call(player,'getMoney') then return wallet end
 end
 local roleNames={trader='Торговец',guard='Охранник',chief='Начальник охраны',patrol='Патрульный'}
 local businessNames={bar='Бар',engineering='Мастерская',armour='Магазин брони',weapons='Оружейная',robotics='Магазин робототехники',police='Охрана города'}
@@ -103,10 +108,19 @@ end
 function M.listLosses(chief,player)
  local ctx,why=context(chief,player)
  if not ctx then return nil,why end
- if not hooksReady or not Store.ready() then return nil,'SERVICE_STORE_NOT_READY'end
- local scanned,scanWhy=Roster.scan(true)
- if not scanned then report('SCAN_UNAVAILABLE',scanWhy);return nil,scanWhy or 'SCAN_UNAVAILABLE'end
- return lossSnapshots(ctx)
+ if Store.evacuation(ctx.town) then return nil,'TOWN_EVACUATING' end
+ if not Store.ready() then return nil,'SERVICE_STORE_NOT_READY' end
+ local expectedShops,coverageWhy
+ if Store.get().partialRoster then expectedShops,coverageWhy=PropertyReturn.staffedShopKeys(ctx) end
+ local scanned,scanWhy=Roster.scan(true,ctx.town,expectedShops)
+ if coverageWhy then scanned=false;scanWhy=coverageWhy end
+ local rows=lossSnapshots(ctx)
+ if not scanned then
+  report('SCAN_UNAVAILABLE',scanWhy)
+  if #rows==0 then return nil,scanWhy or 'SCAN_UNAVAILABLE' end
+ end
+ if #rows>0 and not hooksReady then return rows,'SERVICE_STORE_NOT_READY' end
+ return rows,not scanned and (scanWhy or 'SCAN_UNAVAILABLE') or nil
 end
 local function hiredConfig(pid,row)
  local cfg=Config.copy(Config.hired);cfg.existingID=pid;cfg.streetSlotBase=row.base
@@ -344,13 +358,26 @@ end
 local function process(request)
  local ctx,why=context(request.chief,request.player)
  if not ctx then report('CONTEXT_UNAVAILABLE',why);notify('Начальник, игрок или башня сейчас недоступны для оформления заказа.');return end
+ if request.action=='evacuate' then
+  if not hooksInstalled then notify('Уход недоступен до подключения сохранения услуг.');return end
+  local begun,reason=Evacuation.begin(ctx)
+  if begun then report('EVACUATION_STARTED','town='..ctx.town);notify('Начинаем уход из города.')
+  else report('EVACUATION_NOT_STARTED',reason);notify('Уход пока недоступен. Проверьте, что город загружен и отряды на месте.')end
+  return
+ end
+ if Store.evacuation(ctx.town) then notify('Город покидают. Найм закрыт.');return end
  if not hooksReady or not Store.ready() then notify('Данные найма сейчас недоступны. Найм отключён до проверки реестра сохранения. Деньги не списаны.');return end
- local scanned,scanWhy=Roster.scan(true)
- if not scanned then report('SCAN_UNAVAILABLE',scanWhy);notify('Проверка состава пока не завершена. Деньги не списаны.');return end
+ ctx.wallet=playerWallet(request.player)
+ if not ctx.wallet then report('PLAYER_WALLET_UNVERIFIED');notify('Кошелёк игрока недоступен. Деньги не списаны.');return end
  if pendingUnknown(ctx.town) then notify('Сначала требуется завершить проверку предыдущего оплаченного заказа. Повторной оплаты не будет.');return end
- if request.action=='replace' then replace(ctx,request.selectedID) elseif request.action=='hire' then hire(ctx,request.nonce)end
+ if request.action=='replace' then
+  local scanned,scanWhy=Roster.scan(true)
+  if not scanned then report('SCAN_UNAVAILABLE',scanWhy);notify('Проверка состава пока не завершена. Деньги не списаны.');return end
+  replace(ctx,request.selectedID)
+ elseif request.action=='hire' then hire(ctx,request.nonce)end
 end
 function M.observe(s,ms)
+ if Store.retiredBuilding(s.key) or Store.retiredPlatoon(Live.call(s.platoon,'getPlatoonStringID')) then return end
  -- The native conversation is independent of the payment ledger. A damaged
  -- field must block purchases, not silently remove the chief's entire menu.
  if s.cfg.role=='chief' then
@@ -371,7 +398,7 @@ local function recover(task)
  elseif task.kind=='patrol' then
   local pid=task.key
   local row=Store.get().patrols[pid]
-  if not row or attached[pid] then recoverPatrols[pid]=nil;return end
+  if not row or attached[pid] or Store.retiredPlatoon(pid) or Store.retiredBuilding(row.building) then recoverPatrols[pid]=nil;return end
   local p=Roster.findPlatoon(pid);local b=Roster.building(row.building)
   if not p or not b then return end
   local order=Store.get().orders[row.order]
@@ -382,7 +409,7 @@ local function recover(task)
   end
  elseif task.kind=='replace' then
   local key=task.key;local order=Store.get().orders[key]
-  if not order or order.kind~='replace' or order.status~='pending' then recoverOrders[key]=nil;pending[key]=nil;return end
+  if not order or order.kind~='replace' or order.status~='pending' or Store.evacuation(order.metadata.town) then recoverOrders[key]=nil;pending[key]=nil;return end
   local active=pending[key]
   if not active and order.pid and order.member then
    local record=Store.get().roster[order.metadata.deadID]
@@ -411,12 +438,27 @@ local function scheduleRecovery(now)
  add('patrol',recoverPatrols);add('replace',recoverOrders)
 end
 function M.request(action,chief,player,selectedID)
- if action~='replace' and action~='hire' then return false,'UNKNOWN_SERVICE'end
+ if action~='replace' and action~='hire' and action~='evacuate' then return false,'UNKNOWN_SERVICE'end
  if action=='replace' and (type(selectedID)~='string' or selectedID=='') then return false,'LOSS_SELECTION_REQUIRED'end
  if #queue>=8 then return false,'SERVICE_QUEUE_FULL'end
  sequence=sequence+1
  queue[#queue+1]={action=action,chief=chief,player=player,selectedID=selectedID,nonce=tostring(epoch)..':'..sequence}
  return true
+end
+local function stopTownServices(town,plan)
+ for pid,row in pairs(plan.squads)do
+  local driver=drivers[pid]
+  if driver then driver.resetSession();drivers[pid]=nil end
+  local cfg=Config.templates[row.template]
+  if cfg and cfg.driver then
+   local base=require(cfg.driver)
+   if base.stopBuilding then base.stopBuilding(row.building) end
+  end
+  attached[pid]=nil;recoverPatrols[pid]=nil
+ end
+ for key,order in pairs(Store.get().orders)do
+  if order.metadata and order.metadata.town==town then pending[key]=nil;recoverOrders[key]=nil end
+ end
 end
 function M.tick()
  frames=frames+1
@@ -426,6 +468,9 @@ function M.tick()
   processed=true
   local request=table.remove(queue,1);local ok,err=pcall(process,request)
   if not ok then report('REQUEST_ERROR',err);notify('Заказ требует проверки. Повторный призыв автоматически не выполняется.')end
+ end
+ if hooksInstalled and frames%60==0 and next(Store.get().evacuations) then
+  Evacuation.tick(Live.clock(),report,notify,stopTownServices)
  end
  if not Store.ready() then return end
  if frames%60==0 then
@@ -442,7 +487,7 @@ function M.resetSession()
  for _,driver in pairs(drivers)do pcall(driver.resetSession)end
  queue={};drivers={};pending={};attached={};dialogueStatus={};frames=0;nextScan=0;nextReconcile=0;epoch=epoch+1;sequence=0;loadedSeen=false
  indexed=false;recoverOrders={};recoverPatrols={};recoveryQueue={}
- Roster.reset();Dialogue.resetSession();Store.reset()
+ Evacuation.reset();Roster.reset();Dialogue.resetSession();Store.reset()
 end
 function M.start()
  if started then return true end

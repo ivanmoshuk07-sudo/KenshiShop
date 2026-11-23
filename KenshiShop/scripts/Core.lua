@@ -3,16 +3,23 @@ local Registry=require('Core.Registry')
 local Log=require('Diagnostics')
 local Construction=require('Construction')
 local Ownership=require('Core.Ownership.Registry')
-local M={version='1.0-beta.8'}
+local Store=require('Core.Police.Services.Store')
+local function isRetired(building)
+ local h=building and building:getHandle()
+ return Store.evacuationCorrupt() or (h and Store.retiredBuilding(h:toString()))
+end
+local M={version='1.0-beta.9'}
 local started=false
 local npcLoadedLogged={}
 function M.start()
  if started then return end
  started=true
+ require('Core.Ownership.Retirement').setPredicate(function(key)return Store.evacuationCorrupt() or Store.retiredBuilding(key)end)
  local serviceOK,serviceStatus=pcall(function()return require('Core.Police.Services').start()end)
  if not serviceOK or serviceStatus~=true then Log.error('NPC_CHIEF_SERVICE_START '..tostring(serviceStatus))end
  Events.on('Building::_NV_notifyConstructionComplete',function(building)
   local ok,errorText=pcall(function()
+   if isRetired(building) then return end
    local shop=Registry.byBuilding(building)
    if shop then
     local observed,err=pcall(Ownership.onConstruction,shop.name,building)
@@ -36,6 +43,7 @@ function M.start()
  if not ok then Log.error('GAME_RESET_HOOK_UNAVAILABLE '..tostring(err)) end
  Events.on('Building::_NV_onBuildingLoaded',function(building)
   local success,problem=pcall(function()
+   if isRetired(building) then return end
    local shop=Registry.byBuilding(building)
    if shop then
     Construction.observe(building,'building_loaded_no_furnish')
@@ -63,6 +71,7 @@ function M.start()
  -- This never spawns NPC or edits movement; bounded repair runs on later frames.
  local factionHook,id=pcall(Events.on,'Building::_NV_setFaction',function(building)
   local ok,err=pcall(function()
+   if isRetired(building) then return end
    local shop=Registry.byBuilding(building)
    if shop then Ownership.onFactionChanged(shop.name,building) end
   end)

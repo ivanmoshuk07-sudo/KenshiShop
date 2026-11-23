@@ -39,10 +39,12 @@ jobs:
           lua Development/tests/police_patrol.lua KenshiShop/scripts
           lua Development/tests/police_recruit.lua KenshiShop/scripts
           lua Development/tests/police_services.lua KenshiShop/scripts
-      - name: Validate cleanup and preserved gameplay data against beta.7
+          lua Development/tests/police_evacuees.lua KenshiShop/scripts
+          lua Development/tests/police_property.lua KenshiShop/scripts
+      - name: Check chief dialogue changes against beta.8
         run: |
-          git show v1.0-beta.7:KenshiShop/KenshiShop.mod > /tmp/kenshishop-beta7.mod
-          python Development/tests/data_beta8.py /tmp/kenshishop-beta7.mod KenshiShop/KenshiShop.mod
+          git show v1.0-beta.8:KenshiShop/KenshiShop.mod > /tmp/kenshishop-beta8.mod
+          python Development/tests/data_beta9.py /tmp/kenshishop-beta8.mod KenshiShop/KenshiShop.mod
       - name: Choose the version
         id: version
         env:

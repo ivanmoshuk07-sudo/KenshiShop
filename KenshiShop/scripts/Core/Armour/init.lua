@@ -1,6 +1,7 @@
 -- KenshiShop 0.3.0-alpha.22-skeleton-squads: independent L-House shop interior plus unchanged scheduled NPC squads.
 local SID='102-KenshiShop.mod'
 local Log=require('Diagnostics')
+local Retirement=require('Core.Ownership.Retirement')
 local Interior=require('Core.Armour.Building.Interior')
 local NPC=require('Core.Armour.NPC.init')
 local M={sid=SID,npcStart=NPC.start,npcResume=NPC.resume,npcStatus=NPC.status,npcCheck=NPC.check,name='armour',manifest=require('Core.Armour.Manifest'),interior=Interior}
@@ -18,6 +19,7 @@ function M.enqueue(building)
   local work=pending;pending={}
   for key,handle in pairs(work) do
    local ok,problem=pcall(function()
+    if Retirement.retired(key) then return end
     local b=handle:getBuilding()
     if not b or not b:isValid() then return end
     local result

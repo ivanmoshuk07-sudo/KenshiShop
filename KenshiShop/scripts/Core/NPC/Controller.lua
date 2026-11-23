@@ -11,7 +11,14 @@ local Catalog=require('Core.NPC.Catalog')
 local Duty=require('Core.NPC.Duty')
 local Residence=require('Core.NPC.Residence')
 local NoSever=require('Core.NPC.NoSever')
+local ChiefStore=require('Core.Police.Services.Store')
 local M={}
+local function retiredBuilding(key)
+ return ChiefStore.evacuationCorrupt() or ChiefStore.retiredBuilding(key)
+end
+local function retiredPlatoon(pid)
+ return ChiefStore.retiredPlatoon(pid)
+end
 local ARRIVAL_RADIUS=26
 local POLICE_ARRIVAL_RADIUS=80
 local function radius(s) return s.cfg.shop=='police' and POLICE_ARRIVAL_RADIUS or ARRIVAL_RADIUS end
@@ -389,6 +396,9 @@ function M.new(cfg)
   if s.hook then MonitorQueue.remove(s.hook);s.hook=nil end
  end
  local function tick(s)
+  if retiredBuilding(s.key) or retiredPlatoon(Live.call(s.platoon,'getPlatoonStringID')) then
+   stop(s);states[s.key]=nil;return
+  end
   s.frames=s.frames+1
   local now=Live.clock()
   if s.previousClock and now+0.001<s.previousClock then
@@ -528,6 +538,7 @@ function M.new(cfg)
  function driver.start(b)
   if cfg.serviceHired then return false,'HIRED_REQUIRES_PAID_SERVICE' end
   local key=b:getHandle():toString()
+  if retiredBuilding(key) then return false,'RETIRED_BUILDING' end
   if cfg.role=='guard' then
    -- Safe migration boundary: legacy saves may still contain trader+2guards in one platoon.
    -- Never create a second guard group alongside an old 3-person mixed group.
@@ -595,6 +606,7 @@ function M.new(cfg)
  function driver.resume(b)
   T.resetMembers()
   local key=b:getHandle():toString()
+  if retiredBuilding(key) then return false,'RETIRED_BUILDING' end
   local s=states[key]
   if s then
    SupplyQueue.cancel(s)
@@ -636,6 +648,7 @@ function M.new(cfg)
   if not b or Live.call(b,'isValid')~=true or not p then return false,'ADOPT_ARGUMENTS_INVALID' end
   local id=Live.call(p,'getPlatoonStringID')
   if not id or id=='' then return false,'ADOPT_PLATOON_ID_MISSING' end
+  if retiredPlatoon(id) or retiredBuilding(Live.call(Live.call(b,'getHandle'),'toString')) then return false,'RETIRED_SERVICE_SQUAD' end
   if cfg.existingID and tostring(id)~=tostring(cfg.existingID) then return false,'ADOPT_ID_MISMATCH' end
   local good,template=pcall(function()return p.squadTemplate.stringID end)
   if not good or template~=cfg.template then return false,'ADOPT_TEMPLATE_MISMATCH' end
@@ -675,6 +688,10 @@ function M.new(cfg)
   local ok,pre=pcall(T.preflight,b,cfg)
   if not ok then return 'FAIL '..tostring(pre) end
   return 'OK expected='..cfg.count..' template='..cfg.template..' outside='..pre.method
+ end
+ function driver.stopBuilding(key)
+  local s=states[key]
+  if s then stop(s);states[key]=nil end
  end
  function driver.resetSession()for _,s in pairs(states)do stop(s)end;states={}end
  return driver

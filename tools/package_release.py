@@ -7,7 +7,7 @@ import subprocess
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-DOCS = {'README.md', 'README_BETA8_RU.md'}
+DOCS = {'README.md', 'README_BETA9_RU.md'}
 
 
 def payload(name):

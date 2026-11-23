@@ -18,7 +18,7 @@ local function character(key,data,faction,player)
  return c
 end
 local calls,chief,player,dialogue,nodes,choices,ready,losses
-local failText,failLock,failOpen,failList,storeUnavailable,cstringText
+local failText,failLock,failOpen,failList,storeUnavailable,cstringText,readOnly
 local function node(number)
  local texts={'placeholder'}
  local n={getStringID=function()return sid(number)end,setupChildren=function()end}
@@ -38,8 +38,9 @@ local function children(number,ids)
  nodes[number].children={conversationChoices=list}
 end
 local function tree()
- nodes={};for _,n in ipairs({11101,11102,11103,11105,11106,11200,11220,11221,11222})do node(n)end
- children(11101,{11102});children(11102,{11103,11105,11106});children(11103,{11200})
+ nodes={};for _,n in ipairs({11101,11102,11103,11105,11106,11107,11200,11220,11221,11222,11300,11301,11302})do node(n)end
+ children(11101,{11102});children(11102,{11103,11105,11107,11106});children(11103,{11200})
+ children(11107,{11300});children(11300,{11301,11302})
  local list={}
  for i=0,5 do
   for _,base in ipairs({11210,11230,11240,11250})do node(base+i)end
@@ -58,7 +59,9 @@ local function nativeDialogue(c)
   if ready then choices[1]=nodes[11101]end
  end
  function d:endDialogue(ended)
-  assert(ended);calls.close=calls.close+1;self.ended=true;self.target=nil
+  assert(ended);calls.close=calls.close+1
+  if self.deferClose then return end
+  self.ended=true;self.target=nil
   fire('Dialogue::endDialogue',self,true)
  end
  function d:conversationHasEnded()return self.ended end
@@ -77,7 +80,7 @@ local function nativeDialogue(c)
 end
 local function fixture()
  Dialogue.resetSession();logs={};requests={};calls={add=0,close=0,open=0};ready=true
- failText=false;failLock=false;failOpen=false;failList=false;storeUnavailable=false;cstringText=false
+ failText=false;failLock=false;failOpen=false;failList=false;storeUnavailable=false;cstringText=false;readOnly=false
  losses={{id='dead-a',label='Первый: охрана бара'},{id='dead-b',label='Второй: продавец оружия'},
   {id='dead-c',label='Третий: патрульный'}}
  tree();choices={}
@@ -92,18 +95,21 @@ Dialogue.start({listLosses=function(c,p)
  assert(c:getGameData().stringID=='7310-KenshiShop.mod' and p==player)
  if storeUnavailable then return nil,'SERVICE_STORE_NOT_READY'end
  if failList then return nil,'STORE_NOT_READY'end
+ if readOnly then return losses,'SERVICE_STORE_NOT_READY'end
  return losses
 end,request=function(action,c,p,selected)
- assert(calls.close>0,'native conversation must close before enqueue')
  requests[#requests+1]={action=action,chief=c,player=p,id=selected};return true
 end})
 local function action(n,d)
  d=d or dialogue
  fire('Dialogue::_doActions',d,nodes[n] or {getStringID=function()return sid(n)end})
 end
+local function terminal(n)
+ action(n);dialogue:endDialogue(true)
+end
 local function frame()fire('MyGUI::Gui::eventFrameStart')end
 local function greet(d)
- d=d or dialogue;d.target=player;d.ended=false;action(11102,d)
+ d=d or dialogue;d.target=player;d.ended=false;d.currentLine=nodes[11102];action(11102,d)
 end
 local function list()
  assert(Dialogue.attach(chief));greet();action(11103);frame()
@@ -159,6 +165,7 @@ test('next and previous pages cover every casualty without a hidden six-NPC cap'
  fixture();losses={};for i=1,15 do losses[i]={id='casualty-'..i,label='NPC '..i}end
  list();assert(dialogue:isLocked(nodes[11220]) and not dialogue:isLocked(nodes[11221]))
  action(11221);frame();assert(nodes[11210].texts[1]=='NPC 7')
+ assert(calls.open==2 and dialogue.currentLine==nodes[11200],'changing pages refreshes the actual native window')
  action(11221);frame();assert(nodes[11210].texts[1]=='NPC 13' and dialogue:isLocked(nodes[11221]))
  action(11220);frame();assert(nodes[11210].texts[1]=='NPC 7')
  selected(3);action(11242);assert(#requests==1 and requests[1].id=='casualty-9')
@@ -171,10 +178,11 @@ test('cancel returns to the current list page and never pays',function()
 end)
 test('empty lists and hidden slots cannot reach a paid action',function()
  fixture();losses={};list()
+ assert(nodes[11200].texts[1]=='Все на месте.')
  for n=11210,11215 do assert(dialogue:isLocked(nodes[n]));action(n)end
  assert(dialogue:isLocked(nodes[11220]) and dialogue:isLocked(nodes[11221]))
  action(11240);action(11104);assert(#requests==0)
- action(11222);frame();assert(#requests==0 and dialogue:conversationHasEnded())
+ terminal(11222);frame();assert(#requests==0 and dialogue:conversationHasEnded())
 end)
 test('a stale page, mismatching slot and old automatic replacement entry cannot pay',function()
  fixture();list();action(11240);action(11104);assert(#requests==0)
@@ -220,14 +228,14 @@ test('duplicate native list and slot callbacks do not queue multiple reopens',fu
 end)
 test('native close can finish after several frames without losing the chosen view',function()
  fixture();assert(Dialogue.attach(chief));greet();action(11103)
- dialogue.ended=false
+ dialogue.deferClose=true
  frame();frame();assert(calls.open==0 and #requests==0)
- dialogue.ended=true;frame();assert(calls.open==1 and dialogue.currentLine==nodes[11200])
+ dialogue.deferClose=false;dialogue.ended=true;frame();assert(calls.open==1 and dialogue.currentLine==nodes[11200])
  action(11211);frame();action(11241)
  assert(#requests==1 and requests[1].id=='dead-b')
 end)
 test('a stuck native close and a new ordinary conversation cancel pending reopens',function()
- fixture();assert(Dialogue.attach(chief));greet();action(11103);dialogue.ended=false
+ fixture();assert(Dialogue.attach(chief));greet();action(11103);dialogue.ended=false;dialogue.deferClose=true
  for i=1,8 do frame()end
  assert(calls.open==0 and #requests==0 and #logs>0)
  fixture();assert(Dialogue.attach(chief));greet();action(11103)
@@ -242,6 +250,7 @@ test('native automatic child progression is accepted without reopening the same 
  dialogue.ended=false;dialogue.target=player;dialogue.currentLine=nodes[11231]
  frame();assert(calls.open==0 and #requests==0)
  action(11241);assert(#requests==1 and requests[1].id=='dead-b')
+ assert(calls.close==0,'already linked FCS lines must advance without ending inside the native callback')
 end)
 test('hire and leave retain their original native actions without selection',function()
  fixture();greet();for i=1,10 do action(11105)end
@@ -250,26 +259,26 @@ test('hire and leave retain their original native actions without selection',fun
  greet();action(11106);assert(#requests==2)
 end)
 test('nonchief speakers and nonplayer targets cannot select or hire',function()
- fixture();greet();player=character('npc','npc-template','400-KenshiShop.mod',false)
+ fixture();greet();dialogue.target=character('npc','npc-template','400-KenshiShop.mod',false)
  action(11103);frame();action(11105);assert(#requests==0 and calls.open==0)
  fixture();chief=character('guard','312-KenshiShop.mod','400-KenshiShop.mod',false)
  dialogue=nativeDialogue(chief);greet();action(11105);assert(#requests==0)
 end)
 test('an unavailable save ledger opens a native explanation with every purchase slot locked',function()
  fixture();storeUnavailable=true;list()
- assert(dialogue.currentLine==nodes[11200] and nodes[11200].texts[1]:find('недоступны',1,true))
- assert(not nodes[11200].texts[1]:find('погибших без оплаченной замены нет',1,true))
+ assert(dialogue.currentLine==nodes[11200] and nodes[11200].texts[1]:find('недоступен',1,true))
+ assert(not nodes[11200].texts[1]:find('Все на месте.',1,true))
  for i=0,5 do
   assert(dialogue:isLocked(nodes[11210+i]) and dialogue:isLocked(nodes[11240+i]))
   action(11210+i);frame();action(11240+i)
  end
- assert(dialogue:isLocked(nodes[11220]) and dialogue:isLocked(nodes[11221]) and #requests==0 and #logs==1)
- action(11222);assert(dialogue.ended and #requests==0)
+ assert(dialogue:isLocked(nodes[11220]) and dialogue:isLocked(nodes[11221]) and #requests==0 and #logs==3)
+ terminal(11222);assert(dialogue.ended and #requests==0)
 end)
 test('a recovered ledger restores actual named choices on the next conversation',function()
- fixture();storeUnavailable=true;list();action(11222)
+ fixture();storeUnavailable=true;list();terminal(11222)
  storeUnavailable=false;greet();action(11103);frame()
- assert(nodes[11200].texts[1]:find('Кого нанять заново?',1,true) and not dialogue:isLocked(nodes[11211]))
+ assert(nodes[11200].texts[1]:find('Пропавшие сотрудники: 3.',1,true) and not dialogue:isLocked(nodes[11211]))
  selected(2);action(11241);assert(#requests==1 and requests[1].id=='dead-b')
 end)
 test('binary-safe saved names remain selectable through native C-string text setters',function()
@@ -282,5 +291,48 @@ test('starting twice keeps the original dispatcher and API',function()
  fixture();Dialogue.start({request=function()error('must keep original API')end,listLosses=function()error('must keep API')end})
  assert(#events['Dialogue::_doActions']==1 and #events['MyGUI::Gui::eventFrameStart']==1)
  greet();action(11105);assert(#requests==1)
+end)
+test('a read-only roster reports named losses without offering replacement payment',function()
+ fixture();readOnly=true;list()
+ assert(nodes[11200].texts[1]:find('Пропавшие сотрудники: 3.',1,true))
+ assert(nodes[11211].texts[1]==losses[2].label)
+ selected(2);assert(dialogue:isLocked(nodes[11241]))
+ action(11241);assert(#requests==0)
+ action(11251);frame();assert(dialogue.currentLine==nodes[11200])
+end)
+test('individual unavailable replacements can be viewed without being purchased',function()
+ fixture();losses[2].replaceable=false;list()
+ selected(2);action(11241);assert(dialogue:isLocked(nodes[11241]) and #requests==0)
+ action(11251);frame();selected(1);action(11240)
+ assert(#requests==1 and requests[1].id=='dead-a')
+end)
+test('a player reply still works when the NPC greeting callback was skipped',function()
+ fixture();assert(Dialogue.attach(chief));dialogue.target=player;dialogue.ended=false
+ dialogue.currentLine=nodes[11102]
+ action(11105);action(11105);assert(#requests==1 and requests[1].action=='hire')
+ fixture();assert(Dialogue.attach(chief));dialogue.target=player;dialogue.ended=false
+ dialogue.currentLine=nodes[11102]
+ action(11103);frame()
+ assert(dialogue.currentLine==nodes[11200] and nodes[11210].texts[1]==losses[1].label and #requests==0)
+end)
+test('a valid-looking confirmation with an unrelated visible line cannot start the departure',function()
+ fixture();assert(Dialogue.attach(chief));greet();action(11107);frame()
+ dialogue.currentLine=nodes[11102]
+ action(11301);assert(#requests==0)
+end)
+test('evacuation only starts once after the explicit native confirmation',function()
+ fixture();assert(Dialogue.attach(chief));greet()
+ action(11301);action(11107);action(11301);assert(#requests==0)
+ dialogue.currentLine=nodes[11300];frame();assert(calls.open==0 and #requests==0)
+ action(11301);action(11301);assert(#requests==1 and requests[1].action=='evacuate')
+ assert(requests[1].chief==chief and requests[1].player==player)
+end)
+test('cancelling or closing the evacuation prompt discards permission to start',function()
+ fixture();assert(Dialogue.attach(chief));greet();action(11107);frame()
+ assert(dialogue.currentLine==nodes[11300])
+ terminal(11302);assert(#requests==0)
+ greet();action(11107);frame();dialogue:endDialogue(true)
+ dialogue.target=player;dialogue.ended=false;action(11301)
+ assert(#requests==0)
 end)
 print('Chief native selection dialogue tests passed: '..count)

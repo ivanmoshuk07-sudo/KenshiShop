@@ -109,6 +109,11 @@ function M.reset()
  -- handles from the preceding world while service controllers are absent.
  if type(Transport.resetMembers)=='function' then Transport.resetMembers()end
 end
+function M.platoons()
+ local w=world()
+ if not w then return {},false,'WORLD_UNAVAILABLE' end
+ return lists(w)
+end
 function M.findPlatoon(pid)
  pid=text(pid);if not pid then return nil,'PLATOON_ID_UNAVAILABLE' end
  local w=world();if not w then return nil,'WORLD_UNAVAILABLE' end
@@ -147,6 +152,7 @@ function M.observe(s,ms)
  local key=id(b)
  local town=id(call(b,'getTown'))
  if not pid or not key or not town or (s.key and s.key~=key) then return false,'ROSTER_HOME_UNAVAILABLE' end
+ if Store.retiredBuilding(key) or Store.retiredPlatoon(pid) then return false,'ROSTER_RETIRED' end
  rememberBuilding(b,key)
  local roster=Store.get().roster
  local ordered,seen,used={},{},{}
@@ -185,6 +191,7 @@ function M.death(c)
  if call(c,'isDead')~=true then return false,'DEATH_UNCONFIRMED' end
  local key=id(c);if not key then return false,'CHARACTER_ID_UNAVAILABLE' end
  local row=Store.get().roster[key]
+ if Store.retiredPlatoon(platoonID(platoon(c))) or (row and Store.retiredBuilding(row.building)) then return false,'ROSTER_RETIRED' end
  if type(row)~='table' then
   local p=platoon(c)
   local cfg=M.config(p)
@@ -208,24 +215,27 @@ function M.death(c)
  row.dead=true
  return true,row
 end
-function M.scan(fresh)
+function M.scan(fresh,requestedTown,expectedShops)
  if not Store.ready() then return false,'STORE_NOT_READY' end
  local w=world();if not w then return false,'WORLD_UNAVAILABLE' end
  local grouped,complete,reason=lists(w)
- local seen,count={},0
+ local seen,count,unverified={},0,false
+ local present,matchedTown,covered={},false,{}
  for _,list in ipairs(grouped)do for _,p in ipairs(list)do
   local pid=platoonID(p)
   if pid and not seen[pid] then
    seen[pid]=true
    local cfg=M.config(p)
-   if cfg and factionID(p)==Config.faction then
+   if cfg and factionID(p)==Config.faction and not Store.retiredPlatoon(pid) then
     local h=homeHandle(p)
     local key=handleID(h)
-    if key then
+    if key and not Store.retiredBuilding(key) then
      -- Ownerships returns a copied hand, including for unloaded platoons.
      buildings[key]=h
      local b=call(h,'getBuilding')
-     if b and call(p,'getActivePlatoon') then
+     local sameTown=requestedTown and id(call(b,'getTown'))==requestedTown
+     if sameTown then matchedTown=true end
+     if b and (not requestedTown or sameTown) and call(p,'getActivePlatoon') then
       -- One fresh global membership pass covers every platoon in this scan;
       -- subsequent consumers share it instead of rewalking all loaded NPCs.
       local ok,ms=pcall(Transport.members,w,p,cfg.count,fresh==true)
@@ -233,7 +243,19 @@ function M.scan(fresh)
        fresh=false
        local observed,n=M.observe({cfg=cfg,platoon=p,building=b,key=key},ms)
        if observed then count=count+n end
+       if sameTown then
+        local alive=0
+        for _,m in ipairs(ms)do
+         if call(m.char,'isDead')==false then
+          alive=alive+1;local member=id(m.char);if member then present[member]=true end
+         end
+        end
+        if alive~=cfg.count then unverified=true end
+        covered[key]=covered[key] or {};covered[key][cfg.template]=true
+       end
+      elseif sameTown then unverified=true
       end
+     elseif sameTown then unverified=true
      end
     end
    end
@@ -249,6 +271,21 @@ function M.scan(fresh)
    end
   end)
   if not ok then return false,'CORPSE_ROSTER_UNAVAILABLE' end
+ end
+ if requestedTown then
+  if unverified or not matchedTown then return false,'TOWN_ROSTER_PARTIAL' end
+  for building,shop in pairs(expectedShops or {})do
+   for template,cfg in pairs(Config.templates)do
+    if cfg.shop==shop and not cfg.serviceHired and not (covered[building] and covered[building][template]) then
+     return false,'TOWN_ROSTER_PARTIAL'
+    end
+   end
+  end
+  for member,row in pairs(Store.get().roster)do
+   if row.town==requestedTown and row.dead==false and not present[member] then
+    return false,'TOWN_ROSTER_PARTIAL'
+   end
+  end
  end
  return complete,complete and count or reason
 end

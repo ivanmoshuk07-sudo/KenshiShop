@@ -1,6 +1,7 @@
 -- KenshiShop alpha.41: native Watchtower police tower construction, 1 chief squad + 1 patrol squad.
 local SID='105-KenshiShop.mod'
 local Log=require('Diagnostics')
+local Retirement=require('Core.Ownership.Retirement')
 local Interior=require('Core.Police.Building.Interior')
 local ConstructionGate=require('Core.Ownership.ConstructionGate')
 local Restore=require('Core.Ownership.NPCFurnitureRestore')
@@ -20,6 +21,7 @@ function M.enqueue(building)
   for k,s in pairs(pending) do
    s.frames=s.frames+1
    local ok,problem=pcall(function()
+    if Retirement.retired(k) then pending[k]=nil;return end
     local b=s.handle:getBuilding()
     if not b or not b:isValid() then pending[k]=nil;return end
     local ready,why=ConstructionGate.ready(b)

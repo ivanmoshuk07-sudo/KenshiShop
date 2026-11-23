@@ -3,12 +3,14 @@ package.path=assert(arg[1])..'/?.lua;'..arg[1]..'/?/init.lua;'..package.path
 local Store=require('Core.Police.Services.Store')
 local KEY='KenshiShopChiefStateV1'
 local RECOVERY_KEY=KEY..'Recovery'
+local EVACUATION_KEY=KEY..'Departures'
 local LEGACY_BLANK='KSCS1:T5:S6:ordersT0:S7:patrolsT0:S6:rosterT0:S3:seqN1:0S7:versionN1:1'
 local count=0
 local function test(name,fn)fn();count=count+1;print('PASS '..name)end
 local function ownField(key)
- return key==KEY or key==RECOVERY_KEY or key:match('^'..KEY..'Chunk%d+$')
+ return key==KEY or key==RECOVERY_KEY or key==EVACUATION_KEY or key:match('^'..KEY..'Chunk%d+$')
   or key:match('^'..RECOVERY_KEY..'Chunk%d+$')
+  or key:match('^'..EVACUATION_KEY..'Chunk%d+$')
 end
 local function data(saved)
  return {sdata=saved and {[KEY]=saved} or {},writes=0,
@@ -146,6 +148,14 @@ local function reloadFromNativeDisk(storage)
  for key,value in pairs(storage)do persisted[key]=value:sub(1,4095)end
  return nativeData(persisted)
 end
+local function wrapRecovery(payload)
+ local a,b=1,0
+ local hex=payload:gsub('.',function(byte)
+  a=(a+byte:byte())%65521;b=(b+a)%65521
+  return string.format('%02x',byte:byte())
+ end)
+ return 'KSHOLD2:'..#payload..':'..b*65536+a..':'..hex
+end
 test('ASCII envelopes round-trip arbitrary bytes through the real C-string writer contract',function()
  local gd,storage=nativeData();assert(Store.load(gd))
  local bytes={};for byte=0,255 do bytes[#bytes+1]=string.char(byte)end
@@ -217,9 +227,9 @@ test('large paid history survives the native 4095-byte field limit without losin
  assert(Store.load(reloadFromNativeDisk(storage)))
  assert(Store.get().seq==8 and Store.get().roster.npc.name==large and Store.get().orders.paid.cost==10000)
 end)
-test('the observed 4095-byte clipped recovery field remains quarantined byte-for-byte',function()
+test('a 4095-byte recovery field clipped during the paid orders stays quarantined byte-for-byte',function()
  local gd,storage=nativeData();assert(Store.load(gd))
- Store.get().roster.payload=string.rep('x',3000)
+ Store.get().orders.payload=string.rep('x',3000)
  assert(Store.save(gd))
  local oldRecovery=wirePayload(storage,KEY):gsub('^KSCS2:','KSHOLD2:')
  assert(#oldRecovery>4095)
@@ -232,6 +242,46 @@ test('the observed 4095-byte clipped recovery field remains quarantined byte-for
  assert(not ok and Store.status().bytes==4095 and Store.status().source=='RECOVERY')
  local again,saved=nativeData();assert(select(2,Store.save(again))=='STORE_HELD')
  assert(wirePayload(saved,RECOVERY_KEY)==wirePayload(heldStorage,RECOVERY_KEY))
+end)
+test('native 4095-byte clipping recovers complete paid receipts and the intact roster prefix',function()
+ local gd,storage=nativeData();assert(Store.load(gd))
+ local state=Store.get();state.seq=1
+ state.orders['1']={id='1',kind='hire',subject='hire:1:1:2',cost=20000,status='complete',pid='hires',
+  metadata={town='town',building='tower'}}
+ state.patrols.hires={pid='hires',town='town',building='tower',order='1',base=3,number=1}
+ state.roster.a={id='a',pid='hires',town='town',building='tower',squadTemplate='hired',dead=true}
+ state.roster.z={id='z',pid='guards',town='town',building='house',squadTemplate='guard',dead=false,
+  name=string.rep('охрана',600)}
+ assert(Store.save(gd))
+ local primary=wirePayload(storage,KEY)
+ local recovery=primary:gsub('^KSCS2:', 'KSHOLD2:')
+ for index,old in ipairs({primary,recovery,wrapRecovery(recovery:sub(1,4095))})do
+  local source=index==1 and KEY or RECOVERY_KEY
+  local cropped,saved=reloadFromNativeDisk({[source]=old})
+  assert(Store.load(cropped),Store.diagnostics())
+  local recovered=Store.get()
+  assert(Store.ready() and Store.status().source=='NATIVE_CLIP_RECOVERED' and Store.status().partialRoster)
+  assert(recovered.orders['1'].status=='complete' and recovered.seq==1)
+  assert(recovered.patrols.hires.order=='1' and recovered.roster.a.dead and not recovered.roster.z)
+  assert(Store.save(cropped) and not saved[RECOVERY_KEY])
+  assert(Store.load(reloadFromNativeDisk(saved)) and Store.get().partialRoster and Store.get().seq==1)
+ end
+end)
+test('clipped receipts with a hole or missing hire identity cannot activate payment',function()
+ local gd,storage=nativeData();assert(Store.load(gd))
+ local state=Store.get();state.seq=2
+ state.orders['2']={id='2',kind='hire',subject='hire:2:1:2',cost=20000,status='complete',pid='hires',
+  metadata={town='town',building='tower'}}
+ state.patrols.hires={pid='hires',town='town',building='tower',order='2',base=3,number=1}
+ state.roster.tail=string.rep('x',4000)
+ assert(Store.save(gd))
+ local oldFile=reloadFromNativeDisk({[KEY]=wirePayload(storage,KEY)})
+ assert(not Store.load(oldFile) and not Store.ready())
+ assert(Store.load(gd));state=Store.get();state.seq=1
+ local paid=state.orders['2'];state.orders['2']=nil;paid.id='1';state.orders['1']=paid
+ state.patrols.hires=nil;assert(Store.save(gd))
+ oldFile=reloadFromNativeDisk({[KEY]=wirePayload(storage,KEY)})
+ assert(not Store.load(oldFile) and not Store.ready())
 end)
 test('invalid, missing and mutated parts prevent an incomplete paid history from opening',function()
  local gd,storage=nativeData();assert(Store.load(gd))
@@ -369,5 +419,77 @@ test('failure of both native fields reports unpreserved history and retains in-m
  assert(not ok and why:find('STORE_SAVE_FAILED_UNPRESERVED',1,true) and why:find('ALL_NATIVE_WRITES_FAILED',1,true))
  assert(Store.ready() and Store.get()==state and state.orders.paid.status=='pending')
  assert(not Store.status().preserved and not Store.status().historyMarker and Store.status().saveError)
+end)
+local function evacuationPlan()
+ return {anchor='tower',buildings={tower=true,house=true},property={tower=true,house=true,bed=true},
+  squads={guard={template='security',building='house'}}}
+end
+test('a confirmed departure snapshots its plan and restores only its identity markers',function()
+ local gd,storage=nativeData();assert(Store.load(gd) and Store.evacuationReady())
+ local input=evacuationPlan();local begun,plan=Store.beginEvacuation('town',input)
+ assert(begun and plan~=input and not Store.beginEvacuation('town',input))
+ assert(Store.get().evacuations.town==plan and Store.evacuation('town')==plan)
+ input.buildings.house=nil
+ assert(Store.retiredBuilding('tower') and Store.retiredBuilding('house') and not Store.retiredBuilding('bed'))
+ assert(Store.retiredPlatoon('guard') and not Store.retiredPlatoon('another'))
+ plan.departed=true;plan.squads.guard.progress='moving'
+ assert(Store.save(gd));assert(Store.load(reloadFromNativeDisk(storage)))
+ plan=Store.evacuation('town')
+ assert(plan.departed and plan.property.bed and plan.squads.guard.progress=='moving')
+ assert(Store.retiredBuilding('house') and Store.retiredPlatoon('guard'))
+end)
+test('finishing a departure clears just its staffing records and leaves no pending plan in native saves',function()
+ local gd,storage=nativeData();assert(Store.load(gd))
+ local state=Store.get();state.seq=12
+ state.roster.a={town='town',pid='guard',building='house'}
+ state.roster.b={town='another',pid='different',building='another tower'}
+ state.roster.c={town='another',pid='guard',building='house'}
+ state.roster.d={pid='guard',building='house'}
+ state.orders['10']={metadata={town='town'},status='complete'}
+ state.orders['11']={metadata={town='another'},status='pending'}
+ state.patrols.guard={pid='guard',town='town',building='tower'}
+ assert(Store.beginEvacuation('town',evacuationPlan()))
+ assert(not Store.finishEvacuation('another') and state.roster.a and state.orders['10'])
+ assert(Store.finishEvacuation('town'))
+ assert(not Store.evacuation('town') and not state.roster.a and not state.orders['10'] and not state.patrols.guard)
+ assert(state.roster.b and state.roster.c and not state.roster.d and state.orders['11'] and state.seq==12)
+ assert(Store.save(gd));assert(Store.load(reloadFromNativeDisk(storage)))
+ assert(next(Store.get().evacuations)==nil and Store.retiredBuilding('tower') and Store.retiredPlatoon('guard'))
+ assert(Store.get().roster.b and Store.get().roster.c and Store.get().orders['11'] and Store.get().seq==12)
+ assert(Store.load(data()) and not Store.retiredBuilding('tower') and not Store.retiredPlatoon('guard'))
+end)
+test('invalid and conflicting departure plans leave no partial markers',function()
+ assert(Store.load(data()))
+ local plan=evacuationPlan();plan.squads.guard.building='elsewhere'
+ assert(not Store.beginEvacuation('first',plan) and not Store.retiredBuilding('tower'))
+ plan=evacuationPlan();plan.departed='yes'
+ assert(not Store.beginEvacuation('first',plan) and not Store.retiredBuilding('tower'))
+ plan=evacuationPlan();plan.invalid=function()end
+ assert(not Store.beginEvacuation('first',plan) and not Store.retiredPlatoon('guard'))
+ assert(Store.beginEvacuation('first',evacuationPlan()))
+ assert(not Store.beginEvacuation('second',evacuationPlan()) and not Store.evacuation('second'))
+end)
+test('evacuation progress persists while unresolved payment history remains in quarantine',function()
+ local gd,storage=nativeData({[KEY]='unsafe-to-interpret'})
+ assert(not Store.load(gd) and not Store.ready() and Store.evacuationReady())
+ assert(Store.beginEvacuation('town',evacuationPlan()))
+ assert(select(2,Store.save(gd))=='STORE_HELD' and storage[EVACUATION_KEY] and storage[RECOVERY_KEY])
+ assert(not Store.load(reloadFromNativeDisk(storage)) and Store.status().held and Store.evacuationReady())
+ assert(Store.evacuation('town').squads.guard.building=='house' and Store.retiredBuilding('house'))
+ assert(Store.finishEvacuation('town') and not Store.ready())
+ assert(select(2,Store.save(gd))=='STORE_HELD')
+ assert(not Store.load(reloadFromNativeDisk(storage)) and not Store.evacuation('town') and Store.retiredBuilding('house'))
+end)
+test('a damaged departure field holds paid work without discarding previously verified payments',function()
+ local original,storage=nativeData();assert(Store.load(original))
+ Store.get().orders.paid={status='complete',cost=20000}
+ assert(Store.save(original));storage[EVACUATION_KEY]='damaged'
+ local loaded,reason=Store.load(original)
+ assert(not loaded and reason:find('STORE_DEPARTURE_HELD',1,true))
+ assert(not Store.ready() and not Store.evacuationReady() and Store.evacuationCorrupt())
+ assert(Store.get().orders.paid.cost==20000 and not Store.beginEvacuation('t',evacuationPlan()))
+ local again,fields=nativeData()
+ assert(not Store.save(again) and fields[KEY] and fields[EVACUATION_KEY]=='damaged')
+ assert(not Store.load(again) and Store.get().orders.paid.cost==20000)
 end)
 print('Police save ledger tests passed: '..count)

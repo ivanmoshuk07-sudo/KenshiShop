@@ -70,4 +70,5 @@ function M.status(parent)
  return 'registered='..s.count..' attempts='..s.attempts..'/'..MAX_ATTEMPTS
 end
 function M.resetSession() states={} end
+function M.retire(key)states[key]=nil end
 return M

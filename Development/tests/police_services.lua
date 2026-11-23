@@ -100,6 +100,26 @@ function Recruit.restore(record,b,p,id,stages)
  plan.receipt=receipt;return plan,receipt
 end
 package.loaded['Core.Police.Services.Recruit']=Recruit
+local mayDepart,mayReturn,departChecks,propertyReturns=true,true,0,0
+package.loaded['Core.Police.Services.Evacuees']={
+ plan=function(ctx,ids)
+  assert(ctx.town=='city' and ids.tower and ids.shop)
+  return {original={template='310-KenshiShop.mod',building='tower'}}
+ end,
+ step=function(ctx,squads)
+  assert(ctx.town=='city' and squads.original.building=='tower')
+  departChecks=departChecks+1
+  return mayDepart,'WAITING_FOR_DEPARTURE'
+ end,
+}
+package.loaded['Core.Police.Services.PropertyReturn']={
+ prepare=function()return {buildings={tower=true,shop=true},property={tower=true,shop=true,bed=true}}end,
+ apply=function(ctx,buildings,property,squads)
+  assert(ctx.town=='city' and buildings.tower and property.bed and squads.original)
+  propertyReturns=propertyReturns+1
+  return mayReturn,'WAITING_FOR_PROPERTY'
+ end,
+}
 local Services=require('Core.Police.Services')
 assert(Services.start())
 local function data()return {sdata={},addString=function(self,key,value)self.sdata[key]=value end}end
@@ -110,6 +130,7 @@ local function fixture()
  lastSpawnRecord=nil;lastSpawnTemplate=nil
  dialogueAttaches=0;rosterObservations=0
  blockPosts=false;waitFinish=false;unknownMember=false;scanAvailable=true
+ mayDepart=true;mayReturn=true;departChecks=0;propertyReturns=0
  emit('PlayerInterface::loadFromSerialise',{},data())
  Store.get().roster.dead={id='dead',pid='original',building='shop',town='city',squadTemplate='7802-KenshiShop.mod',
   charTemplate='7306-KenshiShop.mod',race='7101-KenshiShop.mod',name='KS: Охрана (2 этаж)',dead=true}
@@ -211,11 +232,14 @@ test('each chief lists and validates losses only for its own city',function()
  assert(Services.request('replace',otherChief,player,foreignRows[1].id));Services.tick()
  assert(bank==90000 and spawns==1 and lastSpawnRecord=='foreign' and not Store.get().roster.dead.replacedBy)
 end)
-test('loss list requires trusted context and a completed scan and ready save registry',function()
+test('loss list reports known losses with a partial scan and requires verification before saying all are present',function()
  fixture();local before=scans
  assert(Services.listLosses({},player)==nil and Services.listLosses(chief,{})==nil and scans==before)
  scanAvailable=false;local rows,why=Services.listLosses(chief,player)
+ assert(rows and #rows==1 and rows[1].id=='dead')
+ Store.get().roster.dead=nil;rows,why=Services.listLosses(chief,player)
  assert(rows==nil and why=='SCAN_UNAVAILABLE' and bank==100000 and spawns==0 and Store.get().seq==0)
+ scanAvailable=true;assert(#assert(Services.listLosses(chief,player))==0)
  Services.resetSession();rows,why=Services.listLosses(chief,player)
  assert(rows==nil and why=='SERVICE_STORE_NOT_READY' and bank==100000 and spawns==0)
 end)
@@ -230,6 +254,32 @@ test('missing posts funds and incomplete roster checks never charge or allocate'
  fixture();blockPosts=true;click('hire');assert(bank==100000 and spawns==0)
  blockPosts=false;bank=19999;click('hire');assert(bank==19999 and spawns==0)
  bank=100000;scanAvailable=false;click('replace','dead');assert(bank==100000 and spawns==0)
+end)
+test('a new hire does not need a complete census of unloaded staff',function()
+ fixture();scanAvailable=false;click('hire');assert(bank==80000 and spawns==1)
+end)
+test('confirmed departure survives reload and removes only one city after NPCs and property are verified',function()
+ fixture();click('hire');loss('other-loss',{town='other-city',building='other-shop'})
+ mayDepart=false;mayReturn=false
+ click('evacuate')
+ assert(Store.evacuation('city') and Store.retiredBuilding('tower') and Store.retiredPlatoon('original'))
+ assert(not Store.retiredBuilding('other-shop') and propertyReturns==0)
+ click('hire');assert(bank==80000 and spawns==1)
+ recover();assert(departChecks==1 and propertyReturns==0 and Store.get().roster.dead)
+ local save=data();emit('PlayerInterface::serialise',{},save)
+ emit('PlayerInterface::loadFromSerialise',{},save)
+ mayDepart=true;recover()
+ assert(departChecks==2 and propertyReturns==1 and Store.evacuation('city'))
+ mayReturn=true;recover()
+ assert(departChecks==2 and propertyReturns==2 and not Store.evacuation('city'))
+ assert(not Store.get().roster.dead and Store.get().roster['other-loss'])
+ assert(next(Store.get().patrols)==nil and next(Store.get().orders)==nil)
+ assert(Store.retiredBuilding('tower') and Store.retiredPlatoon('original'))
+ local differentTower=building('next-tower',Config.tower)
+ differentTower:setResidentSquad(original)
+ local nextChief=setmetatable({getOwnerships=function()return {_homeBuilding=hand('next-tower',differentTower)}end},{__index=chief})
+ assert(Services.request('hire',nextChief,player));Services.tick()
+ assert(bank==60000 and spawns==2)
 end)
 test('save reload restores hired survivors and permits another genuinely new purchase',function()
  fixture();click('hire');local p=native.hired1;table.remove(p.members,3)
