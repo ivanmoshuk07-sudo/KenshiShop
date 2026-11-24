@@ -23,21 +23,19 @@ end
 function M.reset()
  pending={};idle()
 end
-local function squadHandle(c)
+local function pid(c)
  local ap=Live.call(c,'getPlatoon')
  local ok,p=pcall(function()return ap and ap.me end)
- return ok and Live.call(Live.call(p,'getHandle'),'toString') or nil
+ return ok and Live.call(p,'getPlatoonStringID') or nil
 end
 local function resolve(e)
  local c=Live.call(e.handle,'getCharacter')
  if not c or Live.call(c,'isValid')~=true then return nil end
  if Live.call(Live.call(c,'getHandle'),'toString')~=e.key then return nil end
- if squadHandle(c)~=e.squad or Live.call(c,'isDead')~=false then return nil end
+ if pid(c)~=e.pid or Live.call(c,'isDead')~=false then return nil end
  return c
 end
 function M.tick()
- local world=Live.readyWorld()
- if not world then return end
  local e
  -- Stale entries cost no native calls and have a finite per-frame budget.
  for _=1,64 do
@@ -59,6 +57,7 @@ function M.tick()
  local c=resolve(e)
  if c then
   s.supplyFailures=s.supplyFailures or {}
+  local world=getGameWorld()
   local ok,done,detail=pcall(Supplies.sync,c,world)
   if ok and done then
    s.supplyFailures[e.key]=0
@@ -95,7 +94,7 @@ function M.enqueue(s,ms,now)
  if s.nextSupplyCheck and now<s.nextSupplyCheck then return true end
  if s.supplyResetAt and now>=s.supplyResetAt then s.supplyFailures={};s.supplyResetAt=nil end
  s.supplyFailures=s.supplyFailures or {}
- local id=s.platoonRef and s.platoonRef.key or Live.call(Live.call(s.platoon,'getHandle'),'toString')
+ local id=Live.call(s.platoon,'getPlatoonStringID')
  if not id or id=='' then return false end
  -- Install the single queue hook before accepting work. A failed hook leaves
  -- the audit due, so a later normal controller visit can retry safely.
@@ -107,7 +106,7 @@ function M.enqueue(s,ms,now)
    if h and Live.call(h,'toString')==m.key then
     local old=pending[m.key]
     if not old then
-     local e={state=s,key=m.key,handle=h,squad=id,queuedAt=now}
+     local e={state=s,key=m.key,handle=h,pid=id,queuedAt=now}
      pending[m.key]=e;queue[#queue+1]=e
     end
    end

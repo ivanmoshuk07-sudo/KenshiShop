@@ -85,17 +85,8 @@ function M.ensure(s,ms)
  if not found then return false end
  r.busyLogged=false
  local owns=Live.call(s.platoon,'getOwnerships')
- local house=Origin.field(owns,'_homeBuilding')
- if Origin.handleID(house)~=s.key then
-  -- Adoption has already verified the exact paid platoon and tower. Its
-  -- native factory leaves the resident slot free; Home.ensure binds the
-  -- squad's individual home once it arrives here.
-  if not s.cfg.serviceHired or Live.call(house,'isNull')~=true then
-   if not r.homePending then say(s,'WAIT_HOME','SQUAD_HOME_UNVERIFIED');r.homePending=true end
-   return false
-  end
- end
- r.homePending=nil
+ local ok,home=pcall(function()return owns._homeBuilding:toString()end)
+ if not ok or home~=s.key then return false end -- ownership lifecycle may still be loading
  local old=bb and Live.call(bb,'getCurrentAIPackageName')
  if type(old)~='string' then return fail(s,r,'BLACKBOARD_UNAVAILABLE') end
  local world=getGameWorld()

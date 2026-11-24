@@ -3,35 +3,16 @@ local Registry=require('Core.Registry')
 local Log=require('Diagnostics')
 local Construction=require('Construction')
 local Ownership=require('Core.Ownership.Registry')
-local Store=require('Core.Police.Services.Store')
-local Live=require('Core.NPC.LiveState')
-local function isRetired(building)
- local h=building and building:getHandle()
- return Store.evacuationCorrupt() or (h and Store.retiredBuilding(h:toString()))
-end
-local M={version='1.0-beta.13'}
+local M={version='1.0-beta.8'}
 local started=false
 local npcLoadedLogged={}
-local function nativeWorldLoaded()
- Live.newWorld()
- require('Core.NPC.NativeNodes').resetSession()
- require('Core.NPC.Transport').resetMembers()
- require('Core.NPC.SupplyQueue').reset()
- npcLoadedLogged={}
-end
 function M.start()
  if started then return end
  started=true
- for _,hook in ipairs({{'PlayerInterface::loadFromSerialise',nativeWorldLoaded},{'TitleScreen::exitGame',Live.closeWorld}})do
-  local ok,token=pcall(Events.on,hook[1],hook[2])
-  if not ok or not token then Log.error('NPC_WORLD_HOOK_UNAVAILABLE '..hook[1]) end
- end
- require('Core.Ownership.Retirement').setPredicate(function(key)return Store.evacuationCorrupt() or Store.retiredBuilding(key)end)
  local serviceOK,serviceStatus=pcall(function()return require('Core.Police.Services').start()end)
  if not serviceOK or serviceStatus~=true then Log.error('NPC_CHIEF_SERVICE_START '..tostring(serviceStatus))end
  Events.on('Building::_NV_notifyConstructionComplete',function(building)
   local ok,errorText=pcall(function()
-   if isRetired(building) then return end
    local shop=Registry.byBuilding(building)
    if shop then
     local observed,err=pcall(Ownership.onConstruction,shop.name,building)
@@ -43,7 +24,7 @@ function M.start()
   if not ok then Log.error('CONSTRUCTION_DISPATCH '..tostring(errorText)) end
  end)
  local ok,err=pcall(Events.on,'GameWorld::resetGame',function()
-  nativeWorldLoaded()
+  require('Core.NPC.NativeNodes').resetSession()
   Registry.resetSession()
   Ownership.resetSession()
   require('Core.Ownership.NPCFurnitureRestore').resetSession()
@@ -55,7 +36,6 @@ function M.start()
  if not ok then Log.error('GAME_RESET_HOOK_UNAVAILABLE '..tostring(err)) end
  Events.on('Building::_NV_onBuildingLoaded',function(building)
   local success,problem=pcall(function()
-   if isRetired(building) then return end
    local shop=Registry.byBuilding(building)
    if shop then
     Construction.observe(building,'building_loaded_no_furnish')
@@ -83,7 +63,6 @@ function M.start()
  -- This never spawns NPC or edits movement; bounded repair runs on later frames.
  local factionHook,id=pcall(Events.on,'Building::_NV_setFaction',function(building)
   local ok,err=pcall(function()
-   if isRetired(building) then return end
    local shop=Registry.byBuilding(building)
    if shop then Ownership.onFactionChanged(shop.name,building) end
   end)

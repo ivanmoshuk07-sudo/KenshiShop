@@ -34,9 +34,7 @@ function M.snapshot(shop,b,phase,origin,extra,report)
  -- Never dereference it from these early callbacks (Lua pcall cannot catch
  -- a native access violation). Read the value-type town handle only.
  local early=(phase=='LOAD_CALLBACK' or phase=='CONSTRUCTION_CALLBACK')
- local town,resident
- if early then resident='DEREFERENCE_DEFERRED'
- else town=call(b,'getTown');resident=platoon(b) end
+ local town=early and nil or call(b,'getTown')
  local handle=call(b,'getTownHandle')
  local key=str(call(b,'getHandle'))
  local ok,clock=pcall(function()return os.clock()end)
@@ -47,7 +45,7 @@ function M.snapshot(shop,b,phase,origin,extra,report)
   ..' owner='..faction(owner)..' playerOwned='..tostring(call(b,'isThePlayer'))
   ..' townHandle='..str(handle)..' townState='..(early and 'DEREFERENCE_DEFERRED' or (town and 'READY' or 'TOWN_NOT_READY'))
   ..' townIdentity='..tostring(name or 'TOWN_ID_UNAVAILABLE')
-  ..' resident='..resident..' cpu_clock_ms='..ms..' '..tostring(extra or '')
+  ..' resident='..platoon(b)..' cpu_clock_ms='..ms..' '..tostring(extra or '')
  Log.console(line)
  if report then report(line)end
  return line

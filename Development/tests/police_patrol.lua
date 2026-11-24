@@ -10,7 +10,6 @@ function building:getHandle()return handle('tower',self)end
 local function platoon(id)
  local p={squadTemplate={stringID='11000-KenshiShop.mod'}}
  function p:getPlatoonStringID()return id end
- function p:getHandle()return {toString=function()return id end,getPlatoon=function()return p end}end
  function p:getOwnerships()return {_homeBuilding=handle('tower')}end
  function p:getFaction()return faction end
  return p
@@ -39,7 +38,7 @@ local moves,spawns,owners,observations=0,0,0,0
 local observed={}
 package.loaded.Diagnostics={console=function()end,error=function(msg)error(msg)end}
 local Live={call=function(o,m,...)if o and type(o[m])=='function'then return o[m](o,...)end end,
- clock=function()return clock end,readyWorld=function()return world end,revision=function()return 0 end,halted=function()return false end,safeToOrder=function()return true end,copy=function(p)return p end}
+ clock=function()return clock end,halted=function()return false end,safeToOrder=function()return true end,copy=function(p)return p end}
 package.loaded['Core.NPC.LiveState']=Live
 package.loaded['Core.NPC.NoSever']={tick=function()end}
 package.loaded['Core.NPC.Transport']={members=function(_,p)return p.members end,valid=function()return true end,
@@ -63,7 +62,6 @@ _G.KenshiShopPoliceServices={observe=function(s)observations=observations+1;obse
 local function member(id)
  return {key=id,char={getHandle=function()return handle(id)end,
  getBlackboard=function()return {getCurrentAIPackageName=function()return 'KSB3 Hired night patrol'end}end,
- getPosition=function()return {x=0,y=0,z=0}end,
  setDestination=function()moves=moves+1 end}}
 end
 for _,p in ipairs({first,second})do
@@ -92,21 +90,10 @@ test('separate hired drivers coexist at one tower and resume only their own squa
  local other=Controller.new({shop='police',role='patrol',template='11000-KenshiShop.mod',faction='400-KenshiShop.mod',count=3,
   patrolNight=true,streetSlotBase=6,serviceHired=true,existingID='hire2'})
  assert(other.adopt(building,second));run(1)
- assert(observed.hire1~=observed.hire2 and observed.hire2.pid==second:getPlatoonStringID() and observed.hire2.platoon==nil)
+ assert(observed.hire1~=observed.hire2 and observed.hire2.platoon==second)
  assert(driver.resume(building));run(0);run(10);run(0)
- assert(observed.hire1.pid==first:getPlatoonStringID() and observed.hire1.platoon==nil and owners==0 and spawns==0 and moves==0)
+ assert(observed.hire1.platoon==first and owners==0 and spawns==0 and moves==0)
  other.resetSession();driver.resetSession();assert(next(frames)==nil)
-end)
-test('saved paid survivors near the tower receive work even before their native role was installed',function()
- for _,m in ipairs(first.members)do
-  function m.char:getBlackboard()return {getCurrentAIPackageName=function()return 'KS Medic Robotics Rescue'end}end
- end
- local transport=package.loaded['Core.NPC.Transport']
- transport.distance2D=function(a,b)return math.abs(a.x-b.x)end
- assert(driver.adopt(building,first));run(0);run(1)
- assert(driver.status(building):find('DELIVERED',1,true))
- assert(observed.hire1.work.done and spawns==0 and moves==0 and owners==0)
- driver.resetSession()
 end)
 _G.KenshiShopPoliceServices=nil
 
@@ -117,8 +104,7 @@ package.loaded['Core.NPC.NativeGoals']={remove=function()return true,false end,c
 package.loaded['Core.NPC.NativeNodes']={ensure=function()return true end}
 package.loaded['Core.NPC.HomeAssignment']={ensure=function()return true end}
 package.loaded['Core.NPC.ServiceTown']={verify=function()return true end,bind=function()return true end}
-package.loaded['Core.NPC.OriginTown']={id=function()return 'town'end,field=function(o,k)return o and o[k]end,
- handleID=function(h)return h and h:toString()end}
+package.loaded['Core.NPC.OriginTown']={id=function()return 'town'end,field=function(o,k)return o and o[k]end}
 local Role=require('Core.NPC.RoleAI')
 local bb={name='KSB2 Indoor guards',getCurrentAIPackageName=function(self)return self.name end,
  replaceAIPackage=function()error('matching package must not be replaced')end}
@@ -166,15 +152,5 @@ test('only the hired night variant uses its distinct package',function()
  assert(Role.isWorkingPackage({role='patrol',patrolNight=true},label))
  assert(not Role.isWorkingPackage({role='patrol',patrolNight=true},'KSB2 Town patrol'))
  assert(Role.package({role='patrol'})=='10004-KenshiShop.mod')
-end)
-test('only paid extras omit native factory home while keeping real town target',function()
- package.loaded['Core.NPC.Transport']=nil
- local transport=require('Core.NPC.Transport')
- local arguments
- local factory={createRandomSquad=function(_,...)arguments=table.pack(...);return true end}
- local pre={world={theFactory=factory},faction='faction',spawn={},origin='home-town',template='template',town='service-town'}
- assert(transport.spawn(pre,building,{count=3,serviceHired=true}))
- assert(arguments[5]==nil and arguments[11]:toString()=='tower' and arguments[12]=='service-town')
- assert(transport.spawn(pre,building,{count=3}) and arguments[5]==building)
 end)
 print('Chief hired-patrol integration tests passed: '..count)

@@ -2,7 +2,6 @@
 -- Never searches by radius, never touches furniture of other buildings.
 -- Abort direct setters on first native mismatch; the existing 3-stage exact audit remains fallback.
 local Log=require('Diagnostics')
-local Retirement=require('Core.Ownership.Retirement')
 local M={}
 local sessions={}
 local FACTION='400-KenshiShop.mod'
@@ -41,7 +40,6 @@ function M.apply(parent,child,shop,index)
  if shop=='bar' then return false,'BAR_EXCLUDED' end
  if not parent or not child or call(child,'isValid')~=true then return false,'CHILD_INVALID' end
  local k=key(parent)
- if Retirement.retired(k) then return false,'BUILDING_RETIRED' end
  if not k or not key(child) then return false,'HANDLE_MISSING' end
  local state=sessions[k]
  if not state then state={blocked=false,attempts=0};sessions[k]=state end
@@ -74,5 +72,4 @@ function M.apply(parent,child,shop,index)
  return true,'NPC_OWNED'
 end
 function M.resetSession()sessions={}end
-function M.retire(key)sessions[key]=nil end
 return M

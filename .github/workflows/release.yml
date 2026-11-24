@@ -39,12 +39,10 @@ jobs:
           lua Development/tests/police_patrol.lua KenshiShop/scripts
           lua Development/tests/police_recruit.lua KenshiShop/scripts
           lua Development/tests/police_services.lua KenshiShop/scripts
-          lua Development/tests/police_evacuees.lua KenshiShop/scripts
-          lua Development/tests/police_property.lua KenshiShop/scripts
-      - name: Verify gameplay FCS against beta.12
+      - name: Validate cleanup and preserved gameplay data against beta.7
         run: |
-          git show v1.0-beta.12:KenshiShop/KenshiShop.mod > /tmp/kenshishop-beta12.mod
-          python Development/tests/data_version.py /tmp/kenshishop-beta12.mod KenshiShop/KenshiShop.mod '1.0 beta.13'
+          git show v1.0-beta.7:KenshiShop/KenshiShop.mod > /tmp/kenshishop-beta7.mod
+          python Development/tests/data_beta8.py /tmp/kenshishop-beta7.mod KenshiShop/KenshiShop.mod
       - name: Choose the version
         id: version
         env:

@@ -1,7 +1,6 @@
 -- KenshiShop 0.3.0-alpha.22-skeleton-squads: independent shop interior plus scheduled NPC squads.
 local SID='100-KenshiShop.mod'
 local Log=require('Diagnostics')
-local Retirement=require('Core.Ownership.Retirement')
 local Interior=require('Core.Bar.Building.Interior')
 local ConstructionGate=require('Core.Ownership.ConstructionGate')
 local LoadAudit=require('Core.Bar.Building.LoadAudit')
@@ -23,7 +22,6 @@ function M.enqueue(building)
   for k,s in pairs(pending) do
    s.frames=s.frames+1
    local ok,problem=pcall(function()
-    if Retirement.retired(k) then pending[k]=nil;return end
     local b=s.handle:getBuilding()
     if not b or not b:isValid() then pending[k]=nil;return end
     local ready,why=ConstructionGate.ready(b)

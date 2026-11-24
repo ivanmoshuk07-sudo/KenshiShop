@@ -14,12 +14,9 @@ local blockPosts,waitFinish,unknownMember,scanAvailable=false,false,false,true
 local lastSpawnRecord,lastSpawnTemplate
 local dialogueAttaches,rosterObservations=0,0
 local native,buildings,monitors,stopped={},{},{},{}
-local priorPatrols,patrolsAvailable={},true
-local dutyReady,readyWorld=true,true
-local monitorBuildings={}
 local function hand(key,object)
  return {toString=function()return key end,isNull=function()return key==nil end,
- getBuilding=function()return object end,getCharacter=function()return object end,getPlatoon=function()return object end}
+ getBuilding=function()return object end,getCharacter=function()return object end}
 end
 local npcFaction={getData=function()return {stringID=Config.faction}end}
 local wallet={getMoney=function()return bank end,
@@ -30,65 +27,44 @@ local town={getHandle=function()return hand('city')end,getFaction=function()retu
 local function building(key,sid,homeTown)
  local b={getHandle=function()return hand(key,buildings[key])end,getGameData=function()return {stringID=sid}end,
  isValid=function()return true end,getFaction=function()return npcFaction end,getTown=function()return homeTown or town end}
- function b:setResidentSquad(p)
-  if not self.refuseResidentSet then self.residentSquad=hand(p and p:getPlatoonStringID(),p) end
- end
+ function b:setResidentSquad(p)self.residentSquad={getPlatoon=function()return p end}end
  buildings[key]=b;return b
 end
 local tower=building('tower',Config.tower)
 local shop=building('shop','102-KenshiShop.mod')
 local chief={getGameData=function()return {stringID='7310-KenshiShop.mod'}end,getFaction=function()return npcFaction end,
  isDead=function()return false end,getOwnerships=function()return {_homeBuilding=hand('tower',tower)}end}
-function chief:getHandle()return hand(self.key or 'chief',self)end
 local player={isPlayerCharacter=function()return true end,getFaction=function()return playerFaction end,getMoney=function()return bank end}
-function player:getHandle()return hand('player',self)end
 local function member(key)
  return {key=key,char={isDead=function()return false end,getHandle=function()return hand(key)end}}
 end
-local function squad(pid,template,home,actors)
- local p={members=actors or {},squadTemplate={stringID=template},home=home}
- function p:getPlatoonStringID()return pid end
- function p:getHandle()return hand(pid,self)end
- function p:getFaction()return npcFaction end
- function p:getOwnerships()
-  return {_homeBuilding=self.home and self.home:getHandle() or hand(nil)}
- end
- return p
-end
-local original=squad('original','311-KenshiShop.mod',tower,{member('survivor')})
+local original={members={member('survivor')},getPlatoonStringID=function()return 'original'end}
 native.original=original
 local world={showPlayerAMessage_withLog=function(_,text)notices[#notices+1]=text end}
 function getGameWorld()return world end
-local Live={call=function(o,m,...)if o and type(o[m])=='function'then return o[m](o,...)end end,clock=function()return clock end,
- readyWorld=function()return readyWorld and world or nil end}
+local Live={call=function(o,m,...)if o and type(o[m])=='function'then return o[m](o,...)end end,clock=function()return clock end}
 package.loaded['Core.NPC.LiveState']=Live
 local Roster={}
 function Roster.scan()scans=scans+1;return scanAvailable,'SCAN_UNAVAILABLE'end
 function Roster.reset()end
-function Roster.hiredInTown()if patrolsAvailable then return priorPatrols end;return nil,'NATIVE_CENSUS_PENDING'end
 function Roster.building(key)return buildings[key]end
 function Roster.findPlatoon(pid)lookups=lookups+1;return native[pid],native[pid] and nil or 'TRUE_NOT_FOUND'end
 function Roster.observe()rosterObservations=rosterObservations+1;return true end
 function Roster.death(c)if c and c.dead then Store.get().roster[c.id].dead=true;return true end end
 package.loaded['Core.Police.Services.Roster']=Roster
-package.loaded['Core.NPC.ExistingSquads']={find=function(b,cfg)
- for _,p in pairs(native)do
-  if p.squadTemplate and p.squadTemplate.stringID==cfg.template and p.home==b then return p end
- end
-end}
 local menu={start=function(api)menuAPI=api;return true end,
  attach=function()dialogueAttaches=dialogueAttaches+1;return true end,resetSession=function()end}
 package.loaded['Core.Police.Services.Dialogue']=menu
 local function driver()
  local pid
- return {adopt=function(b,p,options)
-  adopts=adopts+1;p.lastOptions=options;pid=p:getPlatoonStringID();monitors[pid]=true;monitorBuildings[pid]=b;return true
+ return {adopt=function(_,p,options)
+  adopts=adopts+1;p.lastOptions=options;pid=p:getPlatoonStringID();monitors[pid]=true;return true
  end,resetSession=function()if pid then monitors[pid]=nil;stopped[pid]=(stopped[pid] or 0)+1 end end}
 end
 package.loaded['Core.NPC.Controller']={new=function()return driver()end}
 for _,cfg in pairs(Config.templates)do if cfg.driver then package.loaded[cfg.driver]=driver()end end
 package.loaded['Core.NPC.RoleAI']={ensure=function(s)s.work=s.work or {};s.work.done=true;return true end}
-package.loaded['Core.NPC.PostDuty']={candidates=function()return {1}end,day=function()return true end}
+package.loaded['Core.NPC.PostDuty']={candidates=function()return {1}end}
 package.loaded['Core.NPC.NativeNodes']={target=function(_,_,_,_,slot)
  postChecks=postChecks+1;if blockPosts then return nil,'INVALID_POST'end;return {slot=slot}
 end}
@@ -96,8 +72,8 @@ package.loaded['Core.NPC.Transport']={preflight=function()return {}end,
  members=function(_,p,_,fresh)assert(fresh==true,'paid readback must bypass shared membership cache');memberReads=memberReads+1;return p.members end,
  spawn=function()
   spawns=spawns+1;local pid='hired'..spawns
-  local p=squad(pid,Config.hired,nil,{member(pid..'-1'),member(pid..'-2'),member(pid..'-3')})
-  native[pid]=p;return p
+  local p={members={member(pid..'-1'),member(pid..'-2'),member(pid..'-3')},getPlatoonStringID=function()return pid end}
+  native[pid]=p;tower:setResidentSquad(p);return p
  end}
 local Recruit={}
 function Recruit.prepare(record,b,p)return {record=record,building=b,platoon=p,cfg=Config.copy(record.squadTemplate)}end
@@ -124,39 +100,16 @@ function Recruit.restore(record,b,p,id,stages)
  plan.receipt=receipt;return plan,receipt
 end
 package.loaded['Core.Police.Services.Recruit']=Recruit
-local mayDepart,mayReturn,departChecks,propertyReturns=true,true,0,0
-package.loaded['Core.Police.Services.Evacuees']={
- plan=function(ctx,ids)
-  assert(ctx.town=='city' and ids.tower and ids.shop)
-  return {original={template='310-KenshiShop.mod',building='tower'}}
- end,
- step=function(ctx,squads)
-  assert(ctx.town=='city' and squads.original.building=='tower')
-  departChecks=departChecks+1
-  return mayDepart,'WAITING_FOR_DEPARTURE'
- end,
-}
-package.loaded['Core.Police.Services.PropertyReturn']={
- prepare=function()return {buildings={tower=true,shop=true},property={tower=true,shop=true,bed=true}}end,
- staffedShopKeys=function()return {tower='police',shop='armour'}end,
- apply=function(ctx,buildings,property,squads)
-  assert(ctx.town=='city' and buildings.tower and property.bed and squads.original)
-  propertyReturns=propertyReturns+1
-  return mayReturn,'WAITING_FOR_PROPERTY'
- end,
-}
 local Services=require('Core.Police.Services')
 assert(Services.start())
 local function data()return {sdata={},addString=function(self,key,value)self.sdata[key]=value end}end
 local function fixture()
- Services.resetSession();native={original=original};original.members={member('survivor')};original.home=tower
- monitors={};stopped={};monitorBuildings={};tower.refuseResidentSet=false
- tower:setResidentSquad(original);dutyReady=true;readyWorld=true
+ Services.resetSession();native={original=original};original.members={member('survivor')};monitors={};stopped={}
+ tower:setResidentSquad(original)
  clock=100;bank=100000;spawns=0;adopts=0;finishes=0;postChecks=0;logs={};notices={}
  lastSpawnRecord=nil;lastSpawnTemplate=nil
- dialogueAttaches=0;rosterObservations=0;priorPatrols={};patrolsAvailable=true
+ dialogueAttaches=0;rosterObservations=0
  blockPosts=false;waitFinish=false;unknownMember=false;scanAvailable=true
- mayDepart=true;mayReturn=true;departChecks=0;propertyReturns=0
  emit('PlayerInterface::loadFromSerialise',{},data())
  Store.get().roster.dead={id='dead',pid='original',building='shop',town='city',squadTemplate='7802-KenshiShop.mod',
   charTemplate='7306-KenshiShop.mod',race='7101-KenshiShop.mod',name='KS: Охрана (2 этаж)',dead=true}
@@ -169,23 +122,9 @@ local function loss(key,changes)
 end
 local count=0
 local function test(name,fn)fn();count=count+1;print('PASS '..name)end
-local function exerciseDuty()
- if not dutyReady then return end
- for pid,b in pairs(monitorBuildings)do
-  local p=native[pid]
-  if p and p.members and monitors[pid] then
-   local assignment={}
-   for _,m in ipairs(p.members)do assignment[m.key]={mode='DAY'}end
-   Services.hiredDuty({pid=pid,key=b:getHandle():toString(),now=clock,postDuty={members=assignment}},p.members)
-  end
- end
-end
-local function click(action,selectedID,fresh)
- assert(Services.request(action,chief,player,selectedID,fresh));Services.tick();exerciseDuty()
-end
+local function click(action,selectedID)assert(Services.request(action,chief,player,selectedID));Services.tick()end
 local function recover()
  clock=clock+11;for i=1,64 do Services.tick()end
- exerciseDuty()
 end
 test('checking losses is free and one paid replacement does not recreate a survivor',function()
  fixture();assert(#assert(Services.listLosses(chief,player))==1 and bank==100000 and spawns==0)
@@ -262,7 +201,7 @@ test('each chief lists and validates losses only for its own city',function()
  local otherTown={getHandle=function()return hand('other-city')end,getFaction=function()return playerFaction end}
  local otherTower=building('other-tower',Config.tower,otherTown)
  building('other-shop','102-KenshiShop.mod',otherTown)
- local otherChief={key='other-chief',getHandle=chief.getHandle,getGameData=chief.getGameData,getFaction=chief.getFaction,isDead=chief.isDead,
+ local otherChief={getGameData=chief.getGameData,getFaction=chief.getFaction,isDead=chief.isDead,
   getOwnerships=function()return {_homeBuilding=hand('other-tower',otherTower)}end}
  loss('foreign',{town='other-city',building='other-shop'})
  local localRows=assert(Services.listLosses(chief,player));local foreignRows=assert(Services.listLosses(otherChief,player))
@@ -272,14 +211,11 @@ test('each chief lists and validates losses only for its own city',function()
  assert(Services.request('replace',otherChief,player,foreignRows[1].id));Services.tick()
  assert(bank==90000 and spawns==1 and lastSpawnRecord=='foreign' and not Store.get().roster.dead.replacedBy)
 end)
-test('loss list reports known losses with a partial scan and requires verification before saying all are present',function()
+test('loss list requires trusted context and a completed scan and ready save registry',function()
  fixture();local before=scans
  assert(Services.listLosses({},player)==nil and Services.listLosses(chief,{})==nil and scans==before)
  scanAvailable=false;local rows,why=Services.listLosses(chief,player)
- assert(rows and #rows==1 and rows[1].id=='dead')
- Store.get().roster.dead=nil;rows,why=Services.listLosses(chief,player)
  assert(rows==nil and why=='SCAN_UNAVAILABLE' and bank==100000 and spawns==0 and Store.get().seq==0)
- scanAvailable=true;assert(#assert(Services.listLosses(chief,player))==0)
  Services.resetSession();rows,why=Services.listLosses(chief,player)
  assert(rows==nil and why=='SERVICE_STORE_NOT_READY' and bank==100000 and spawns==0)
 end)
@@ -294,60 +230,6 @@ test('missing posts funds and incomplete roster checks never charge or allocate'
  fixture();blockPosts=true;click('hire');assert(bank==100000 and spawns==0)
  blockPosts=false;bank=19999;click('hire');assert(bank==19999 and spawns==0)
  bank=100000;scanAvailable=false;click('replace','dead');assert(bank==100000 and spawns==0)
-end)
-test('hired checkout waits for observed native duty before closing the paid order',function()
- fixture();dutyReady=false;click('hire')
- assert(Store.get().orders['1'].status=='pending' and monitors.hired1 and bank==80000 and spawns==1)
- assert(tower.residentSquad:getPlatoon()==original)
- dutyReady=true;exerciseDuty()
- assert(Store.get().orders['1'].status=='complete' and bank==80000 and spawns==1)
-end)
-test('three legacy paid squads reattach when the last hire displaced the tower resident',function()
- fixture();dutyReady=false
- for _=1,3 do click('hire') end
- local state=Store.get();state.orders['2'].metadata.residentPID='hired1';state.orders['3'].metadata.residentPID='hired2'
- for _,row in pairs(state.patrols)do row.adopted=nil end
- tower:setResidentSquad(native.hired3);tower.refuseResidentSet=true
- local save=data();emit('PlayerInterface::serialise',{},save);emit('PlayerInterface::loadFromSerialise',{},save)
- local before=adopts;recover()
- assert(tower.residentSquad:getPlatoon()==original and adopts==before+3 and bank==40000 and spawns==3)
- assert(Store.get().orders['3'].status=='pending')
- dutyReady=true;exerciseDuty();assert(Store.get().orders['3'].status=='complete' and bank==40000 and spawns==3)
-end)
-test('a queued purchase is idle during load and stale participants cannot spend',function()
- fixture();assert(Services.request('hire',chief,player));readyWorld=false
- Services.tick();assert(bank==100000 and spawns==0)
- emit('PlayerInterface::loadFromSerialise',{},data());readyWorld=true
- Services.tick();assert(bank==100000 and spawns==0)
- local expired=setmetatable({getHandle=function()return hand('expired')end},{__index=chief})
- assert(Services.request('hire',expired,player));Services.tick();assert(bank==100000 and spawns==0)
-end)
-test('a new hire does not need a complete census of unloaded staff',function()
- fixture();scanAvailable=false;click('hire');assert(bank==80000 and spawns==1)
-end)
-test('confirmed departure survives reload and removes only one city after NPCs and property are verified',function()
- fixture();click('hire');loss('other-loss',{town='other-city',building='other-shop'})
- mayDepart=false;mayReturn=false
- click('evacuate')
- assert(Store.evacuation('city') and Store.retiredBuilding('tower') and Store.retiredPlatoon('original'))
- assert(not Store.retiredBuilding('other-shop') and propertyReturns==0)
- click('hire');assert(bank==80000 and spawns==1)
- recover();assert(departChecks==1 and propertyReturns==0 and Store.get().roster.dead)
- local save=data();emit('PlayerInterface::serialise',{},save)
- emit('PlayerInterface::loadFromSerialise',{},save)
- mayDepart=true;recover()
- assert(departChecks==2 and propertyReturns==1 and Store.evacuation('city'))
- mayReturn=true;recover()
- assert(departChecks==2 and propertyReturns==2 and not Store.evacuation('city'))
- assert(not Store.get().roster.dead and Store.get().roster['other-loss'])
- assert(next(Store.get().patrols)==nil and next(Store.get().orders)==nil)
- assert(Store.retiredBuilding('tower') and Store.retiredPlatoon('original'))
- local differentTower=building('next-tower',Config.tower)
- local newResident=squad('new-original','311-KenshiShop.mod',differentTower)
- differentTower:setResidentSquad(newResident)
- local nextChief=setmetatable({key='new-chief',getOwnerships=function()return {_homeBuilding=hand('next-tower',differentTower)}end},{__index=chief})
- assert(Services.request('hire',nextChief,player));Services.tick()
- assert(bank==60000 and spawns==2)
 end)
 test('save reload restores hired survivors and permits another genuinely new purchase',function()
  fixture();click('hire');local p=native.hired1;table.remove(p.members,3)
@@ -399,7 +281,7 @@ test('recovery distributes saved paid squads over separate frames and removes co
  local save=data();emit('PlayerInterface::serialise',{},save)
  Services.resetSession();emit('PlayerInterface::loadFromSerialise',{},save)
  local before=adopts
- Services.tick();assert(adopts==before) -- First frame reconciles the roster.
+ for i=1,60 do Services.tick();assert(adopts==before)end
  Services.tick();assert(adopts==before+1)
  Services.tick();assert(adopts==before+2)
  local reads=memberReads;recover();assert(adopts==before+2 and memberReads==reads)
@@ -451,7 +333,7 @@ test('beta5 migrated patrol saves repair stale hire receipt IDs before recovery 
 end)
 test('completed hired patrols survive chief replacement and preserve the new tower resident',function()
  fixture();click('hire');click('hire')
- local newChief=squad('new-chief','310-KenshiShop.mod',tower)
+ local newChief={getPlatoonStringID=function()return 'new-chief'end}
  native.original=nil;native['new-chief']=newChief;tower:setResidentSquad(newChief)
  local before=adopts;local save=data();emit('PlayerInterface::serialise',{},save)
  emit('PlayerInterface::loadFromSerialise',{},save);recover();recover()
@@ -476,15 +358,8 @@ test('a truncated ledger still attaches the native chief menu and preserves fail
  emit('PlayerInterface::loadFromSerialise',{},bad)
  assert(not Store.ready() and Store.status().held)
  Services.observe({cfg={role='chief'}},{{key='chief',char=chief}})
- assert(dialogueAttaches==1 and rosterObservations==1)
- scanAvailable=false
- local rows,why=Services.listLosses(chief,player);assert(not rows and why=='ROSTER_HISTORY_INCOMPLETE')
- loss('newly-observed')
- rows,why=Services.listLosses(chief,player)
- assert(#rows==1 and rows[1].id=='newly-observed' and why=='SERVICE_STORE_NOT_READY')
- click('replace','newly-observed');assert(bank==100000 and spawns==0)
- Store.get().roster['newly-observed']=nil
- scanAvailable=true;assert(#assert(Services.listLosses(chief,player))==0)
+ assert(dialogueAttaches==1 and rosterObservations==0)
+ local rows,why=Services.listLosses(chief,player);assert(not rows and why=='SERVICE_STORE_NOT_READY')
  click('hire');assert(bank==100000 and spawns==0 and next(Store.get().orders)==nil)
  local held=data();emit('PlayerInterface::serialise',{},held)
  assert(type(held.sdata.KenshiShopChiefStateV1Recovery)=='string')
@@ -499,57 +374,6 @@ test('a new campaign first save recovers hook readiness after a prior corrupt ca
  Services.resetSession();emit('PlayerInterface::serialise',{},data())
  assert(Store.ready());click('hire')
  assert(bank==80000 and spawns==1 and Store.get().orders['1'].status=='complete')
-end)
-local function clippedSave()
- local function envelope(tag,raw)
-  local a,b=1,0
-  local hex=raw:gsub('.',function(char)
-   a=(a+char:byte())%65521;b=(b+a)%65521
-   return string.format('%02x',char:byte())
-  end)
-  return tag..#raw..':'..(b*65536+a)..':'..hex
- end
- local legacy='KSCS1:T5:S6:ordersT0:S7:patrolsT0:S6:rosterT1:S4:tailS2522:'
-  ..string.rep('x',2522)..'S3:seqN1:0S7:versionN1:1'
- local clipped=envelope('KSCS2:',legacy):sub(1,4095)
- for _=1,6 do clipped=envelope('KSHOLD2:',clipped):sub(1,4095)end
- local result=data();local archive=envelope('KSHOLD2:',clipped)
- local size,digest=envelope('KSHOLD2:',archive):match('^KSHOLD2:(%d+):(%d+):')
- local key='KenshiShopChiefStateV1Recovery'
- result.sdata[key]='KSCH3:'..size..':'..digest
- for start=1,#archive,3000 do result.sdata[key..'Chunk'..(1+(start-1)//3000)]=archive:sub(start,start+2999)end
- return result
-end
-test('explicit new hire opens a separate ledger only after funds and native preflight',function()
- fixture();emit('PlayerInterface::loadFromSerialise',{},clippedSave());assert(Services.newLedgerOffered())
- click('hire');assert(bank==100000 and spawns==0 and not Store.ready())
- bank=15574;click('hire',nil,true);assert(bank==15574 and spawns==0 and not Store.ready())
- bank=100000;patrolsAvailable=false;click('hire',nil,true);assert(bank==100000 and spawns==0 and not Store.ready())
- patrolsAvailable=true;blockPosts=true;click('hire',nil,true);assert(bank==100000 and spawns==0 and not Store.ready())
- priorPatrols={{pid='old-live',building='tower',town='city'}}
- native['old-live']={getPlatoonStringID=function()return 'old-live'end}
- blockPosts=false;click('hire',nil,true)
- assert(Store.ready() and Store.legacyOrdersArchived() and bank==80000 and spawns==1)
- assert(Store.get().patrols['old-live'].base==3 and Store.get().patrols['old-live'].order==nil)
- assert(Store.get().patrols.hired1.base==6 and Store.get().orders['1'].cost==20000)
- recover();assert(monitors['old-live'] and bank==80000 and spawns==1)
- local save=data();emit('PlayerInterface::serialise',{},save);emit('PlayerInterface::loadFromSerialise',{},save)
- assert(Store.ready() and Store.legacyOrdersArchived() and not Services.newLedgerOffered())
- click('hire');assert(bank==60000 and spawns==2 and Store.get().patrols.hired2.base==9)
-end)
-test('a confirmed casualty replacement can be the first new order',function()
- fixture();emit('PlayerInterface::loadFromSerialise',{},clippedSave());loss('verified')
- local rows,why=Services.listLosses(chief,player)
- assert(#rows==1 and rows[1].id=='verified' and why==nil)
- click('replace','verified',true)
- assert(Store.ready() and Store.legacyOrdersArchived() and bank==90000 and spawns==1)
- assert(Store.get().orders['1'].kind=='replace' and lastSpawnRecord=='verified')
-end)
-test('replacement in an unidentified old hired squad never opens the ledger or charges',function()
- fixture();emit('PlayerInterface::loadFromSerialise',{},clippedSave())
- loss('unbound-hired',{pid='missing-hired',squadTemplate=Config.hired,building='tower'})
- click('replace','unbound-hired',true)
- assert(not Store.ready() and not Store.legacyOrdersArchived() and bank==100000 and spawns==0)
 end)
 test('a later verified save reenables purchases after a transient native save failure',function()
  fixture();local bad=data();bad.addString=function()error('temporary native write failure')end
