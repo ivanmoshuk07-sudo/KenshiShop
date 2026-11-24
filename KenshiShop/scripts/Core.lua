@@ -9,7 +9,7 @@ local function isRetired(building)
  local h=building and building:getHandle()
  return Store.evacuationCorrupt() or (h and Store.retiredBuilding(h:toString()))
 end
-local M={version='1.0-beta.12'}
+local M={version='1.0-beta.13'}
 local started=false
 local npcLoadedLogged={}
 local function nativeWorldLoaded()

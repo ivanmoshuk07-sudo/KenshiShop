@@ -16,10 +16,11 @@ end
 function M.readyWorld()
  if closing then return nil end
  local w=getGameWorld()
- if not w or M.call(w,'isLoadingFromASaveGame')==true then return nil end
+ if not w then return nil end
+ -- Use GameWorld's flags. The engine's isLoadingFromASaveGame dereferences
+ -- MainBarGUI and crashes on early frames before the main bar exists.
  local ok,initialized,resetting=pcall(function()return w.initialized,w.gameResetting end)
- if ok and (initialized==false or resetting==true) then return nil end
- return w
+ if ok and initialized==true and resetting==false then return w end
 end
 function M.clock()
  local w=assert(getGameWorld(),'WORLD_MISSING')

@@ -173,4 +173,21 @@ test('a protected new squad member resumes delivery when safe without stopping i
  assert(spawns==beforeSpawns+1 and moves==beforeMoves+2)
  d.resetSession();assert(next(frames)==nil)
 end)
+test('startup readiness never calls the main-bar loading query',function()
+ local live=dofile(root..'/Core/NPC/LiveState.lua')
+ local oldWorld=getGameWorld
+ local queries=0
+ local boot={initialized=false,gameResetting=false,isLoadingFromASaveGame=function()
+  queries=queries+1;error('native MainBarGUI does not exist at startup')
+ end}
+ getGameWorld=function()return boot end
+ for _=1,60 do assert(live.readyWorld()==nil)end
+ boot.initialized=true
+ assert(live.readyWorld()==boot)
+ boot.gameResetting=true;assert(live.readyWorld()==nil)
+ boot.gameResetting=false;live.closeWorld();assert(live.readyWorld()==nil)
+ live.newWorld();assert(live.readyWorld()==boot and live.revision()==1)
+ assert(queries==0)
+ getGameWorld=oldWorld
+end)
 print('Controller integration checks: '..total)

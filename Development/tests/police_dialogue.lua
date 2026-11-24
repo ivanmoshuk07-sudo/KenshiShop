@@ -88,7 +88,7 @@ local function fixture()
  chief=character('chief','7310-KenshiShop.mod','400-KenshiShop.mod',false)
  player=character('player','player-template','204-gamedata.base',true)
  dialogue=nativeDialogue(chief)
- function getGameWorld()return {gamedata={getData=function(_,key,kind)
+ function getGameWorld()return {initialized=true,gameResetting=false,gamedata={getData=function(_,key,kind)
   assert(key=='11100-KenshiShop.mod' and kind==73);return {stringID=key}
  end}}end
 end

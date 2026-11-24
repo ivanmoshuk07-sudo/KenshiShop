@@ -1,4 +1,4 @@
-"""Verify that this runtime fix leaves the beta.11 FCS records intact."""
+"""Verify that an FCS release differs from its predecessor only in description."""
 from pathlib import Path
 import sys
 
@@ -10,7 +10,7 @@ baseline = km.ler(previous)
 updated = km.ler(current)
 assert km.serializar(baseline) == previous.read_bytes()
 assert km.serializar(updated) == current.read_bytes()
-assert updated['description'].startswith(b'KenshiShop 1.0 beta.12:')
+assert updated['description'].startswith(f'KenshiShop {sys.argv[3]}:'.encode())
 updated['description'] = baseline['description']
 assert km.serializar(updated) == previous.read_bytes()
-print('PASS all 287 beta.11 FCS records and references preserved')
+print(f'PASS all {len(baseline["records"])} FCS records and references preserved')
