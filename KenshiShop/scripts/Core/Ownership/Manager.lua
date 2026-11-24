@@ -5,6 +5,7 @@ local Log=require('Diagnostics')
 local Transport=require('Core.NPC.Transport')
 local TownAudit=require('Core.Ownership.TownAudit')
 local ConstructionGate=require('Core.Ownership.ConstructionGate')
+local Retirement=require('Core.Ownership.Retirement')
 local M={}
 local Residence=require('Core.NPC.Residence')
 local OWNER_POLL_FRAMES=4    -- first safe frame; small bounded interval for active platoon readiness
@@ -464,6 +465,9 @@ function M.new(cfg,report)
   end
  end
  local function tick(s)
+  if Retirement.retired(s.key) then
+   stop(s);states[s.key]=nil;return
+  end
   s.frames=s.frames+1
   local b=building(s)
   if not b then
@@ -504,6 +508,7 @@ function M.new(cfg,report)
  local function begin(b,reason,platoon,role)
   if not b then return nil end
   local k=key(b)
+  if Retirement.retired(k) then return nil end
   local prior=states[k]
   -- Duplicate load events can appear before all native data is ready.
   -- Invalidate old role/squad caches and never carry active pointers across loads.
@@ -533,6 +538,7 @@ function M.new(cfg,report)
   -- Construction callback only ARMS a first-safe-frame transfer. Never mutate
   -- building from native constructor/construction events.
   local s=begin(b,'CONSTRUCTION')
+  if not s then return false end
   emit(s,'CONSTRUCTION_OBSERVED','owner_now='..factionID(try(b.getFaction,b))
    ..' first_safe_frame_tries_existing_active_anchor; own_squad_fallback', 'construction')
  end
@@ -541,6 +547,7 @@ function M.new(cfg,report)
    if spec.role==role then
     local previous=states[key(b)]
     local s=begin(b,'SPAWN',p,role)
+    if not s then return false,'BUILDING_RETIRED' end
     if previous and previous.constructionCPU then
      s.constructionCPU=previous.constructionCPU
      emit(s,'SQUAD_READY','role='..role..' construction_event_saved=true; resident_rebind_when_ready','squad_'..role)
@@ -551,6 +558,7 @@ function M.new(cfg,report)
   return false
  end
  function Public.restored(role,b,p)
+  if Retirement.retired(key(b)) then return false,'BUILDING_RETIRED' end
   for _,spec in ipairs(cfg.squads)do
    if spec.role==role and p and templateID(p)==spec.template and homeID(p)==key(b) then
     local s=states[key(b)]
@@ -564,6 +572,7 @@ function M.new(cfg,report)
   return false
  end
  function Public.arrived(role,b,p)
+  if Retirement.retired(key(b)) then return false,'BUILDING_RETIRED' end
   local s=states[key(b)]
   if s and s.hook then
    s.groups[role]=p
@@ -575,6 +584,7 @@ function M.new(cfg,report)
   begin(b,'LOAD')
  end
  function Public.onFactionChanged(b)
+  if Retirement.retired(key(b)) then return false end
   local s=states[key(b)]
   if not s or s.transferInProgress then return false end
   local current=factionID(try(b.getFaction,b))
@@ -595,6 +605,7 @@ function M.new(cfg,report)
  function Public.monitorResident(b,now)
   if not SPLIT_SHOPS[cfg.shop] then return false,'NOT_SPLIT_SHOP' end
   local k=key(b)
+  if Retirement.retired(k) then return false,'BUILDING_RETIRED' end
   local s=states[k]
   if not s or not s.ownerOK or not s.rolePassed.trader or not s.rolePassed.guard then
    return false,'ROLES_NOT_VERIFIED'
@@ -686,6 +697,10 @@ function M.new(cfg,report)
  function Public.resetSession()
   for _,s in pairs(states)do stop(s)end
   states={}
+ end
+ function Public.retire(k)
+  local s=states[k]
+  if s then stop(s);states[k]=nil end
  end
  return Public
 end

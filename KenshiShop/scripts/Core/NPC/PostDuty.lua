@@ -24,10 +24,10 @@ local function rosterKey(ms)
  local keys={};for _,m in ipairs(ms)do keys[#keys+1]=m.key end
  table.sort(keys);return table.concat(keys,'\0')
 end
-function M.candidates(shop,role,floor)
+function M.candidates(shop,role,floor,towerPosts)
  local out={}
+ local kind=(role=='trader' or towerPosts) and 1 or 2
  for i,p in ipairs(Posts[shop] or {})do
-  local kind=role=='trader' and 1 or 2
   if p.kind==kind and p.floor==floor then out[#out+1]=i end
  end
  if #out==0 and role=='trader' then
@@ -61,6 +61,8 @@ end
 function M.tick(s,ms)
  if not s.work or not s.work.done or not s.building or type(s.now)~='number' then return end
  local role=s.cfg.role
+ local towerPosts=s.cfg.towerPosts
+ local rotate=role=='guard' and not towerPosts
  -- Patrols retain the native route in the day; only the night shift gets
  -- personal post subjects. The leader/follower FCS goals are time-gated too.
  if role=='patrol' and s.cfg.shop~='police' then return end
@@ -133,11 +135,11 @@ function M.tick(s,ms)
    -- keeps that role after reloading even when the first guard has died.
    local name=Live.call(m.char,'getName') or ''
    local saved=tonumber(name:match('^KS: Охрана %((%d+) этаж%)$'))
-   state.floorByMember[m.key]=(saved==1 or saved==2) and saved-1 or (rank-1)%2
+   state.floorByMember[m.key]=towerPosts and 0 or ((saved==1 or saved==2) and saved-1 or (rank-1)%2)
   end
   local floor=role=='guard' and state.floorByMember[m.key] or 0
   local mode=role=='guard' and ('FLOOR_'..floor) or (day and 'DAY' or 'NIGHT')
-  local due=r.mode~=mode or (role=='guard' and s.now>=(r.nextAt or 0))
+  local due=r.mode~=mode or (rotate and s.now>=(r.nextAt or 0))
   if due and r.tries<3 then
    local safe,why=Jobs.safe(m.char)
    if not safe then report(s,r,'DEFER',why)
@@ -150,7 +152,7 @@ function M.tick(s,ms)
       role=='patrol' and ('leader=36 followers=141 hours='..(s.cfg.patrolNight and '23_06' or '06_23')) or 'task=20')
     else report(s,r,'DEFER',err)end
    else
-    local list=M.candidates(s.cfg.shop,role,floor)
+    local list=M.candidates(s.cfg.shop,role,floor,towerPosts)
     local nextIndex=r.index%math.max(1,#list)+1
     local outside=role=='chief' and day
     if role=='patrol' then outside=(s.cfg.streetSlotBase or 0)+(state.patrolSlots[m.key] or 0) end
@@ -173,7 +175,7 @@ function M.tick(s,ms)
        r.mode=mode;r.index=nextIndex;r.nextAt=s.now+30;r.tries=0;r.node=node
        r.observeAt=tracePosts and s.now+2 or nil
        Nodes.claim(s,index,outside,m)
-       if role=='guard' and not r.labelled then
+       if rotate and not r.labelled then
         local name='KS: Охрана ('..(floor+1)..' этаж)'
         local fn;pcall(function()fn=m.char.setName end)
         if type(fn)=='function' then
@@ -202,9 +204,9 @@ function M.tick(s,ms)
   local r=state.members[m.key]
   local floor=role=='guard' and state.floorByMember[m.key] or 0
   local mode=role=='guard' and ('FLOOR_'..floor) or (day and 'DAY' or 'NIGHT')
-  local due=r.mode~=mode or (role=='guard' and s.now>=(r.nextAt or 0))
+  local due=r.mode~=mode or (rotate and s.now>=(r.nextAt or 0))
   if due and r.tries<3 then wake=s.now end
-  if role=='guard' and r.mode==mode and r.nextAt and r.nextAt>s.now then wake=math.min(wake,r.nextAt)end
+  if rotate and r.mode==mode and r.nextAt and r.nextAt>s.now then wake=math.min(wake,r.nextAt)end
   if tracePosts and r.observeAt then wake=math.min(wake,r.observeAt)end
  end
  state.nextWake=wake

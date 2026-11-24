@@ -2,6 +2,7 @@
 -- Exact layout/model/parent/position native match; NO creation, movement or bulk setters.
 local Log=require('Diagnostics')
 local Audit=require('Core.Ownership.Furniture')
+local Retirement=require('Core.Ownership.Retirement')
 local M={}
 local states={}
 local MAX_ATTEMPTS=3
@@ -72,6 +73,7 @@ end
 function M.apply(parent,source)
  if id(parent)~='100-KenshiShop.mod' then return false,'NOT_BAR' end
  local k=key(parent)
+ if Retirement.retired(k) then return false,'BUILDING_RETIRED' end
  if not k then return false,'PARENT_HANDLE_UNAVAILABLE' end
  if ownerID(parent)~=TARGET or safe(parent,'isThePlayer')~=false then
   return false,'PARENT_NOT_NPC_OWNED'
@@ -155,6 +157,7 @@ end
 function M.request(parent,source)
  if id(parent)~='100-KenshiShop.mod' then return false,'NOT_BAR' end
  local k=key(parent)
+ if Retirement.retired(k) then return false,'BUILDING_RETIRED' end
  local h=safe(parent,'getHandle')
  if not k or not h then return false,'HANDLE_UNAVAILABLE' end
  local old=states[k]
@@ -163,6 +166,7 @@ function M.request(parent,source)
  local s={key=k,handle=h,source=tostring(source or 'UNKNOWN'),attempts=0,frames=0}
  states[k]=s
  local ok,hook=pcall(Events.on,'MyGUI::Gui::eventFrameStart',function()
+  if Retirement.retired(k) then M.retire(k);return end
   s.frames=s.frames+1
   if s.attempts>=MAX_ATTEMPTS or s.frames>FRAMES[MAX_ATTEMPTS]+3 then
    if s.hook then Events.off(s.hook);s.hook=nil end
@@ -189,6 +193,11 @@ function M.request(parent,source)
  end)
  if ok and hook then s.hook=hook;return true,'SCHEDULED'
  else states[k]=nil;return false,'HOOK_FAILED '..tostring(hook) end
+end
+function M.retire(k)
+ local s=states[k]
+ if s and s.hook then Events.off(s.hook) end
+ states[k]=nil
 end
 function M.resetSession()
  for _,s in pairs(states) do if s.hook then Events.off(s.hook) end end

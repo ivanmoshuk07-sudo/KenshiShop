@@ -11,6 +11,7 @@ local Catalog=require('Core.NPC.Catalog')
 local Duty=require('Core.NPC.Duty')
 local Residence=require('Core.NPC.Residence')
 local NoSever=require('Core.NPC.NoSever')
+local Retirement=require('Core.Ownership.Retirement')
 local M={}
 local ARRIVAL_RADIUS=26
 local POLICE_ARRIVAL_RADIUS=80
@@ -53,7 +54,8 @@ local function squadMembers(s)
   local bb=lead and Live.call(lead,'getBlackboard')
   nativeSaved=Work.isWorkingPackage(s.cfg,Live.call(bb,'getCurrentAIPackageName'))
  end
- if type(count)~='number' or count<1 or count>s.cfg.count or (s.phase~='DELIVERED' and not nativeSaved and count~=s.cfg.count) then
+ local savedHire=s.saved and s.cfg.serviceHired
+ if type(count)~='number' or count<1 or count>s.cfg.count or (s.phase~='DELIVERED' and not nativeSaved and not savedHire and count~=s.cfg.count) then
   return nil,nil,'COUNT_MISMATCH '..tostring(count)..'/'..s.cfg.count end
  local ms,err=T.members(getGameWorld(),s.platoon,s.cfg.count)
  if ms and #ms~=count then ms,err=T.members(getGameWorld(),s.platoon,s.cfg.count,true)end
@@ -389,13 +391,15 @@ function M.new(cfg)
   if s.hook then MonitorQueue.remove(s.hook);s.hook=nil end
  end
  local function tick(s)
+  if Retirement.retired(s.key) then stop(s);states[s.key]=nil;return end
+  if cfg.serviceHired and not Live.readyWorld() then return end
   s.frames=s.frames+1
   local now=Live.clock()
   if s.previousClock and now+0.001<s.previousClock then
    SupplyQueue.cancel(s);T.resetMembers()
    -- All stores recover their EXISTING squad on clock rewind. A previous
    -- version stopped monitoring four stores and lost unfinished delivery.
-   s.previousClock=now;s.nextCheck=0;s.phase='WAIT_SAVED'
+   s.previousClock=now;s.nextCheck=0;s.phase=cfg.serviceHired and 'WAIT_ACTIVE' or 'WAIT_SAVED'
    s.saved=true;s.platoon=nil;s.orders={};s.baseline=nil;s.work=nil;s.catalog=nil;s.duty=nil;s.nextSupplyCheck=nil;s.supplyResetAt=nil;s.supplyFailures=nil
    s.teleDue=nil
    emit(s,'CLOCK_RESET_RECOVER','game_clock_decreased; read_only_saved_squad_lookup; no_new_spawn','clock_reset_recover_'..s.frames)
@@ -406,14 +410,22 @@ function M.new(cfg)
   s.now=now
   local b=building(s)
   if not b then s.nextCheck=now+AUDIT_MINUTES;return end
+  if cfg.serviceHired then
+   if Live.call(b,'isPhysical')~=true then s.nextCheck=now+AUDIT_MINUTES;return end
+   -- Borrow the registered platoon only for this callback. A raw Platoon
+   -- from a previous world or unloaded zone cannot be used for a lookup.
+   local p=Live.call(s.platoonHand,'getPlatoon')
+   if not p or Live.call(p,'getPlatoonStringID')~=s.pid then s.nextCheck=now+AUDIT_MINUTES;return end
+   s.platoon=p
+  end
   s.building=b
   if s.phase=='WAIT_SAVED' then
    -- A building can load before its faction's saved squads are registered.
    -- One deferred lookup per 10 game minutes, never spawn or replace anything.
    local ok,p,why=pcall(Existing.find,b,cfg)
    if ok and p then
-    s.platoon=p;s.phase='WAIT_ACTIVE';s.nextCheck=0
-    emit(s,'SAVED_FOUND','deferred existing_platoon='..tostring(Live.call(p,'getPlatoonStringID'))..' no_respawn','saved_deferred')
+    s.platoon=p;s.pid=Live.call(p,'getPlatoonStringID');s.phase='WAIT_ACTIVE';s.nextCheck=0
+    emit(s,'SAVED_FOUND','deferred existing_platoon='..tostring(s.pid)..' no_respawn','saved_deferred')
     if not cfg.serviceHired then
      pcall(function() require('Core.Ownership.Registry').onRestored(cfg.shop,cfg.role,b,p) end)
     end
@@ -457,7 +469,10 @@ function M.new(cfg)
    if cfg.role=='trader' then
     pcall(function()require('Core.Ownership.Registry').monitorResident(cfg.shop,b,now)end)
    end
-   if residentOK then Duty.tick(s,ms,b)end
+   if residentOK then
+    Duty.tick(s,ms,b)
+    if cfg.serviceHired and services and services.hiredDuty then services.hiredDuty(s,ms)end
+   end
    s.nextCheck=now+1
    return
   end
@@ -492,7 +507,7 @@ function M.new(cfg)
    end
    return
   end
-  if snap.near==cfg.count then
+  if snap.near==(cfg.serviceHired and #ms or cfg.count) then
    s.lastAudit=snap.byID
    return arrived(s,ms,b)
   end
@@ -506,6 +521,7 @@ function M.new(cfg)
   if s.hook then return true end
   local id,why=MonitorQueue.add(function()
    local good,reason=pcall(tick,s)
+   if cfg.serviceHired then s.platoon=nil;s.building=nil end
    if not good then
     Log.error('NPC_MONITOR_EXCEPTION shop='..cfg.shop..' '..tostring(reason))
     s.phase='FAILED';stop(s)
@@ -518,8 +534,10 @@ function M.new(cfg)
   local key=b:getHandle():toString()
   local s={cfg=cfg,key=key,handle=b:getHandle(),platoon=p,saved=saved,phase='WAIT_ACTIVE',
    frames=0,orders={},teleportUsed={},once={},near=0,previousClock=nil}
+  s.pid=Live.call(p,'getPlatoonStringID')
+  if cfg.serviceHired then s.platoonHand=Live.call(p,'getHandle');s.platoon=nil end
   states[key]=s
-  if p then emit(s,saved and 'SAVED_FOUND' or 'SPAWN',saved and ('existing_platoon='..tostring(Live.call(p,'getPlatoonStringID'))..' no_respawn') or 'native_platoon_created') end
+  if p then emit(s,saved and 'SAVED_FOUND' or 'SPAWN',saved and ('existing_platoon='..tostring(s.pid)..' no_respawn') or 'native_platoon_created') end
   s.nextCheck=0
   -- Preserve the factory's legacy 40-frame registration grace for new squads.
   attach(s,saved and 0 or 40)
@@ -528,6 +546,7 @@ function M.new(cfg)
  function driver.start(b)
   if cfg.serviceHired then return false,'HIRED_REQUIRES_PAID_SERVICE' end
   local key=b:getHandle():toString()
+  if Retirement.retired(key) then return false,'BUILDING_RETIRED' end
   if cfg.role=='guard' then
    -- Safe migration boundary: legacy saves may still contain trader+2guards in one platoon.
    -- Never create a second guard group alongside an old 3-person mixed group.
@@ -595,6 +614,7 @@ function M.new(cfg)
  function driver.resume(b)
   T.resetMembers()
   local key=b:getHandle():toString()
+  if Retirement.retired(key) then return false,'BUILDING_RETIRED' end
   local s=states[key]
   if s then
    SupplyQueue.cancel(s)
@@ -653,9 +673,14 @@ function M.new(cfg)
     s.work.setup=s.work.setup or {};s.work.setup[options.initializedMember]=true
    end
   end
-  local key=b:getHandle():toString();local old=states[key]
-  if old and Live.call(old.platoon,'getPlatoonStringID')==id then
-   old.platoon=p;old.handle=b:getHandle();old.building=b
+  local key=b:getHandle():toString()
+  if Retirement.retired(key) then return false,'BUILDING_RETIRED' end
+  local paidHand=cfg.serviceHired and Live.call(p,'getHandle')
+  if cfg.serviceHired and not paidHand then return false,'ADOPT_PLATOON_HANDLE_MISSING' end
+  local old=states[key]
+  if old and old.pid==id then
+   old.handle=b:getHandle()
+   if cfg.serviceHired then old.platoonHand=paidHand else old.platoon=p;old.building=b end
    invalidateRoster(old,'PAID_REPLACEMENT')
    seed(old)
    if not old.hook then attach(old)end
@@ -675,6 +700,10 @@ function M.new(cfg)
   local ok,pre=pcall(T.preflight,b,cfg)
   if not ok then return 'FAIL '..tostring(pre) end
   return 'OK expected='..cfg.count..' template='..cfg.template..' outside='..pre.method
+ end
+ function driver.stopBuilding(key)
+  local s=states[key]
+  if s then stop(s);states[key]=nil end
  end
  function driver.resetSession()for _,s in pairs(states)do stop(s)end;states={}end
  return driver

@@ -9,6 +9,12 @@ function M.call(obj,method,...)
  if good then return val end
  return nil
 end
+function M.readyWorld()
+ local w=getGameWorld()
+ if not w then return nil end
+ local ok,initialized,resetting=pcall(function()return w.initialized,w.gameResetting end)
+ if ok and initialized==true and resetting==false then return w end
+end
 function M.clock()
  local w=assert(getGameWorld(),'WORLD_MISSING')
  local stamp=assert(w:getTimeStamp_inGameHours(),'GAME_CLOCK_MISSING')

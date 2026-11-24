@@ -5,11 +5,12 @@ local count=0
 local function test(name,fn)fn();count=count+1;print('PASS '..name)end
 local function handle(id,b)return {toString=function()return id end,getBuilding=function()return b end,isNull=function()return id==nil end}end
 local faction={getData=function()return {stringID='400-KenshiShop.mod'}end}
-local building={isValid=function()return true end,getPosition=function()return {x=0,y=0,z=0}end}
+local building={isValid=function()return true end,isPhysical=function()return true end,getPosition=function()return {x=0,y=0,z=0}end}
 function building:getHandle()return handle('tower',self)end
 local function platoon(id)
  local p={squadTemplate={stringID='11000-KenshiShop.mod'}}
  function p:getPlatoonStringID()return id end
+ function p:getHandle()return {getPlatoon=function()return self end,toString=function()return id end}end
  function p:getOwnerships()return {_homeBuilding=handle('tower')}end
  function p:getFaction()return faction end
  return p
@@ -36,9 +37,12 @@ local function run(minutes)
 end
 local moves,spawns,owners,observations=0,0,0,0
 local observed={}
+local observedPlatoons={}
+local gameReady=true
 package.loaded.Diagnostics={console=function()end,error=function(msg)error(msg)end}
 local Live={call=function(o,m,...)if o and type(o[m])=='function'then return o[m](o,...)end end,
- clock=function()return clock end,halted=function()return false end,safeToOrder=function()return true end,copy=function(p)return p end}
+ clock=function()return clock end,halted=function()return false end,safeToOrder=function()return true end,copy=function(p)return p end,
+ readyWorld=function()return gameReady and world or nil end}
 package.loaded['Core.NPC.LiveState']=Live
 package.loaded['Core.NPC.NoSever']={tick=function()end}
 package.loaded['Core.NPC.Transport']={members=function(_,p)return p.members end,valid=function()return true end,
@@ -58,7 +62,9 @@ package.loaded['Core.NPC.RoleAI']={
   s.work.done=true
  end,status=function()return 'READY'end}
 package.loaded['Core.Ownership.Registry']={onArrived=function()owners=owners+1 end,onRestored=function()owners=owners+1 end}
-_G.KenshiShopPoliceServices={observe=function(s)observations=observations+1;observed[s.platoon:getPlatoonStringID()]=s end}
+_G.KenshiShopPoliceServices={observe=function(s)
+ observations=observations+1;observed[s.pid]=s;observedPlatoons[s.pid]=s.platoon
+end}
 local function member(id)
  return {key=id,char={getHandle=function()return handle(id)end,
  getBlackboard=function()return {getCurrentAIPackageName=function()return 'KSB3 Hired night patrol'end}end,
@@ -90,10 +96,17 @@ test('separate hired drivers coexist at one tower and resume only their own squa
  local other=Controller.new({shop='police',role='patrol',template='11000-KenshiShop.mod',faction='400-KenshiShop.mod',count=3,
   patrolNight=true,streetSlotBase=6,serviceHired=true,existingID='hire2'})
  assert(other.adopt(building,second));run(1)
- assert(observed.hire1~=observed.hire2 and observed.hire2.platoon==second)
+ assert(observed.hire1~=observed.hire2 and observedPlatoons.hire2==second and observed.hire2.platoon==nil)
  assert(driver.resume(building));run(0);run(10);run(0)
- assert(observed.hire1.platoon==first and owners==0 and spawns==0 and moves==0)
+ assert(observedPlatoons.hire1==first and observed.hire1.platoon==nil and owners==0 and spawns==0 and moves==0)
  other.resetSession();driver.resetSession();assert(next(frames)==nil)
+end)
+test('paid controller never resolves cached native handles while the world is resetting',function()
+ assert(driver.adopt(building,first))
+ local before=observations;gameReady=false
+ run(10);assert(observations==before)
+ gameReady=true;run(1);assert(observations>before and observed.hire1.platoon==nil)
+ driver.resetSession()
 end)
 _G.KenshiShopPoliceServices=nil
 

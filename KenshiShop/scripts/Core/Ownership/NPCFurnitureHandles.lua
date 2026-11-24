@@ -57,4 +57,5 @@ function M.candidates(parent)
  return result,s.count
 end
 function M.resetSession()saved={}end
+function M.retire(key)saved[key]=nil end
 return M

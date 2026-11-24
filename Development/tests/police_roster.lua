@@ -77,6 +77,33 @@ test('observation and death wait for the current save ledger',function()
  ok,why=Roster.scan();assert(not ok and why=='STORE_NOT_READY')
  assert(next(Store.get().roster)==nil)
 end)
+test('verified native deaths can be read while historical payment records are held',function()
+ local b=fixture();local p=squad('guard','7800-KenshiShop.mod',b);local dead=member('guard',p)
+ dead.dead=true;active[1]=p;world.deathParade[dead.key]=dead
+ local ok=Store.load({sdata={KenshiShopChiefStateV1='damaged ledger'}})
+ assert(not ok and not Store.ready() and Store.evacuationReady())
+ local complete,why=Roster.scan(true,'town-A',{['shop-A']='bar'})
+ assert(not complete and why=='TOWN_ROSTER_PARTIAL')
+ assert(Store.get().roster.guard.dead==true and not Store.ready())
+end)
+
+test('hired patrol census scopes by native town and tower across loaded and unloaded squads',function()
+ fixture()
+ local localTower=building('tower-A','town-A');function localTower:getGameData()return {stringID=Config.tower}end
+ local remoteTower=building('tower-B','town-B');function remoteTower:getGameData()return {stringID=Config.tower}end
+ local first=squad('hired-A',Config.hired,localTower);local second=squad('hired-B',Config.hired,localTower,false)
+ local remote=squad('hired-C',Config.hired,remoteTower,false)
+ active[1]=first;unloaded={first,second,remote}
+ local rows=assert(Roster.hiredInTown('town-A'))
+ assert(#rows==2 and rows[1].pid=='hired-A' and rows[2].pid=='hired-B')
+ assert(rows[1].building=='tower-A' and rows[2].town=='town-A')
+ unloadedFail=true;local found,why=Roster.hiredInTown('town-A')
+ assert(not found and why=='FACTION_ROSTER_UNAVAILABLE')
+ unloadedFail=false;unloaded[4]=squad('hired-no-home',Config.hired,nil,false)
+ found,why=Roster.hiredInTown('town-A')
+ assert(not found and why=='HIRED_NATIVE_HOME_UNVERIFIED')
+end)
+
 test('saved guard names preserve floor roles and native race identities',function()
  local b=fixture();local p=squad('guard','7800-KenshiShop.mod',b)
  local second=member('a-second',p,'KS: Охрана (2 этаж)','custom-race')

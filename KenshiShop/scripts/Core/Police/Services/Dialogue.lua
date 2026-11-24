@@ -10,10 +10,18 @@ local GREETING='11102-KenshiShop.mod'
 local CHECK='11103-KenshiShop.mod'
 local HIRE='11105-KenshiShop.mod'
 local LEAVE='11106-KenshiShop.mod'
+local EVACUATE='11107-KenshiShop.mod'
 local LIST='11200-KenshiShop.mod'
 local PREV='11220-KenshiShop.mod'
 local NEXT='11221-KenshiShop.mod'
 local EXIT='11222-KenshiShop.mod'
+local EVACUATION_PROMPT='11300-KenshiShop.mod'
+local CONFIRM_EVACUATION='11301-KenshiShop.mod'
+local CANCEL_EVACUATION='11302-KenshiShop.mod'
+local HIRE_PROMPT='11400-KenshiShop.mod'
+local CONFIRM_HIRE='11401-KenshiShop.mod'
+local CANCEL_HIRE='11402-KenshiShop.mod'
+local LEGACY_ORDER=' Старые записи об оплате повреждены. Этот заказ будет записан отдельно.'
 local SIZE=6
 local attached={}
 local started=false
@@ -109,7 +117,9 @@ local function collect(dialogue)
    if list then for i=1,#list do todo[#todo+1]=list[i]end end
   end
  end
- for _,key in ipairs({LIST,PREV,NEXT,EXIT})do assert(nodes[key],'CHIEF_SELECTION_NODE_MISSING '..key)end
+ for _,key in ipairs({LIST,PREV,NEXT,EXIT,EVACUATION_PROMPT,CONFIRM_EVACUATION,CANCEL_EVACUATION,HIRE_PROMPT,CONFIRM_HIRE,CANCEL_HIRE})do
+  assert(nodes[key],'CHIEF_SELECTION_NODE_MISSING '..key)
+ end
  for n=0,SIZE-1 do
   for _,base in ipairs({11210,11230,11240,11250})do
    assert(nodes[sid(base+n)],'CHIEF_SELECTION_NODE_MISSING '..sid(base+n))
@@ -131,9 +141,17 @@ local function locked(s,node,on)
 end
 local function rows(s,api)
  local result,why=api.listLosses(s.chief,s.player)
- if result==nil and why=='SERVICE_STORE_NOT_READY' then
+ s.notice=nil
+ if why=='SERVICE_STORE_NOT_READY' then
+  s.notice='Реестр найма недоступен.'
+ elseif why=='ROSTER_HISTORY_INCOMPLETE' then
+  s.notice='Состав ещё проверяется. Часть старых сведений о потерях недоступна.'
+ elseif result==nil or why then
+  s.notice='Состав города проверен не полностью. Список уточняется.'
+ end
+ if result==nil then
+  Log.console('NPC_CHIEF_ROSTER_UNAVAILABLE reason='..tostring(why))
   s.rows={}
-  s.unavailable='Данные найма из сохранения сейчас недоступны. Найм отключён до проверки реестра. Деньги не списаны.'
   return
  end
  assert(type(result)=='table',tostring(why or 'CHIEF_SELECTION_LIST_UNAVAILABLE'))
@@ -143,16 +161,20 @@ local function rows(s,api)
   assert(type(row)=='table' and type(row.id)=='string' and row.id~='' and not seen[row.id],'CHIEF_SELECTION_ID_INVALID')
   local label=row.label or row.name
   assert(type(label)=='string' and label~='','CHIEF_SELECTION_LABEL_INVALID')
-  copy[#copy+1]={id=row.id,label=label};seen[row.id]=true
+  copy[#copy+1]={id=row.id,label=label,replaceable=row.replaceable~=false and why~='SERVICE_STORE_NOT_READY'}
+  seen[row.id]=true
  end
- s.rows=copy;s.unavailable=nil
+ s.rows=copy
 end
 local function prepareList(s)
  local total=#s.rows;local pages=math.max(1,math.ceil(total/SIZE))
  s.page=math.max(1,math.min(s.page or 1,pages));s.slots={};s.selected=nil
- local title=s.unavailable or (total==0 and 'Подтверждённых погибших без оплаченной замены нет.'
-  or 'Кого нанять заново? '..total..' погибших. Страница '..s.page..' из '..pages..'. Замена одного — 10 000 кат.'
- )
+ local title=s.notice or 'Все на месте.'
+ if total>0 then
+  title='Пропавшие сотрудники: '..total..'.'
+  if pages>1 then title=title..' Страница '..s.page..' из '..pages..'.' end
+  if s.notice then title=title..' '..s.notice end
+ end
  text(s.nodes[LIST],title)
  for n=0,SIZE-1 do
   local row=s.rows[(s.page-1)*SIZE+n+1]
@@ -166,106 +188,166 @@ local function prepareList(s)
  locked(s,s.nodes[NEXT],s.page>=pages)
  locked(s,s.nodes[EXIT],false)
 end
-local function reopen(s,node,phase)
+local function advance(s,node,phase,nativeChild)
  assert(active==s,'CHIEF_SELECTION_SUPERSEDED')
- s.phase='queued';close(s)
- queued={session=s,token=s.token,node=node,phase=phase}
+ s.phase=nativeChild and phase or 'queued'
+ -- A linked child usually advances inside the native reply handler. The
+ -- fallback runs after the handler returns and only reopens a missing view.
+ queued={session=s,token=s.token,node=node,phase=phase,nativeChild=nativeChild}
 end
 local function band(key,base)
  for n=0,SIZE-1 do if key==sid(base+n) then return n+1 end end
 end
 local function selectedLine(key)
  return key==LIST or key==PREV or key==NEXT or key==EXIT
+  or key==EVACUATION_PROMPT or key==CONFIRM_EVACUATION or key==CANCEL_EVACUATION
+  or key==HIRE_PROMPT or key==CONFIRM_HIRE or key==CANCEL_HIRE
   or band(key,11210) or band(key,11230) or band(key,11240) or band(key,11250)
+end
+local function inView(dialogue,line,parentKey)
+ local current=field(dialogue,'currentLine')
+ return current==line or call(current,'getStringID')==parentKey
+end
+local function request(api,action,chief,player,key,selected,newLedger,hireSlot)
+ local ok,why=api.request(action,chief,player,selected,newLedger,hireSlot)
+ Log.console('NPC_CHIEF_DIALOGUE_REQUEST line='..key..' action='..action..' queued='..tostring(ok==true)
+  ..' reason='..tostring(why or 'NONE'))
+ if ok~=true then error('CHIEF_DIALOGUE_REQUEST_FAILED '..tostring(why),0)end
 end
 local function dispatch(api,dialogue,line)
  local key=call(line,'getStringID')
- if key~=GREETING and key~=CHECK and key~=HIRE and key~=LEAVE and not selectedLine(key) then return end
+ local menuReply=key==CHECK or key==HIRE or key==LEAVE or key==EVACUATE
+ if key~=GREETING and not menuReply and not selectedLine(key) then return end
  local chief,player,chiefKey,playerKey=context(dialogue)
- if not chief then return end
- if key==GREETING then
-  invalidate()
-  active={dialogue=dialogue,chief=chief,player=player,chiefHand=chief:getHandle(),playerHand=player:getHandle(),
-   chiefKey=chiefKey,playerKey=playerKey,token=serial,phase='menu'}
-  return
- end
- local s=active
- if not matches(s,dialogue,chiefKey,playerKey) then return end
- if key==HIRE or key==LEAVE then
-  if s.phase~='menu' then return end
-  invalidate();close(s)
-  if key==HIRE then
-   local ok,why=api.request('hire',chief,player)
-   if ok==false then error('CHIEF_DIALOGUE_REQUEST_FAILED '..tostring(why),0)end
+ if not chief then
+  if menuReply or key==CONFIRM_EVACUATION or key==CONFIRM_HIRE or band(key,11240) then
+   Log.console('NPC_CHIEF_DIALOGUE_CONTEXT_MISSING line='..key)
   end
   return
  end
+ if menuReply and not inView(dialogue,line,GREETING) then return end
+ if key==GREETING or (menuReply and not active) then
+  invalidate()
+  active={dialogue=dialogue,chief=chief,player=player,chiefHand=chief:getHandle(),playerHand=player:getHandle(),
+   chiefKey=chiefKey,playerKey=playerKey,token=serial,phase='menu'}
+  if key==GREETING then return end
+ end
+ local s=active
+ if not matches(s,dialogue,chiefKey,playerKey) then return end
+ if menuReply and s.phase~='menu' then return end
+ if key==LEAVE then s.phase='finished';return end
+ if key==HIRE then
+  s.nodes=collect(dialogue)
+  local slot,why,newLedger=api.hireOffer(chief,player)
+  s.hireSlot=slot;s.newLedger=newLedger
+  local quotes={
+   [1]='Три патрульных за 20 000 кат. С 06:00 до 23:00 они стоят снаружи у башни. Ночью патрулируют город.',
+   [2]='Три охранника за 20 000 кат. Они круглосуточно стоят на постах внутри башни.',
+   HIRE_LIMIT='Оба дополнительных отряда уже наняты.',
+   TOWN_EVACUATING='Мы покидаем город. Найм закрыт.',
+   PAYMENT_PENDING='Сначала нужно проверить предыдущий заказ.',
+   SERVICE_STORE_NOT_READY='Реестр найма недоступен.',
+  }
+  local quote=quotes[slot or why] or 'Нужно дождаться проверки состава города.'
+  if slot then quote=quote..(newLedger and LEGACY_ORDER or '')..' Подтверждаешь?' end
+  text(s.nodes[HIRE_PROMPT],quote)
+  locked(s,s.nodes[CONFIRM_HIRE],slot==nil)
+  text(s.nodes[CANCEL_HIRE],slot and 'Нет, передумал.' or 'Закончить разговор.')
+  advance(s,s.nodes[HIRE_PROMPT],'hire',true)
+  return
+ end
+ if key==EVACUATE then
+  s.nodes=collect(dialogue)
+  Log.console('NPC_CHIEF_DIALOGUE_EVACUATION_PROMPT line='..key)
+  advance(s,s.nodes[EVACUATION_PROMPT],'evacuation',true)
+  return
+ end
  if key==CHECK then
-  if s.phase~='menu' then return end
   s.nodes=collect(dialogue);rows(s,api);s.page=1;prepareList(s)
-  reopen(s,s.nodes[LIST],'list');return
+  Log.console('NPC_CHIEF_DIALOGUE_ROSTER line='..key..' rows='..#s.rows..' complete='..tostring(not s.notice))
+  advance(s,s.nodes[LIST],'list',true);return
  end
  if not s.nodes or s.nodes[key]~=line then return end
- if key==LIST or band(key,11230) then return end
+ if key==LIST or key==EVACUATION_PROMPT or key==HIRE_PROMPT or band(key,11230) then return end
+ if key==CONFIRM_HIRE or key==CANCEL_HIRE then
+  if s.phase~='hire' or not inView(dialogue,line,HIRE_PROMPT) then return end
+  if key==CONFIRM_HIRE and (not s.hireSlot or invoke(dialogue,'isLocked',line)) then return end
+  s.phase='finished';queued=nil
+  if key==CONFIRM_HIRE then request(api,'hire',chief,player,key,nil,s.newLedger,s.hireSlot) end
+  return
+ end
+ if key==CONFIRM_EVACUATION or key==CANCEL_EVACUATION then
+  if s.phase~='evacuation' or not inView(dialogue,line,EVACUATION_PROMPT) then return end
+  s.phase='finished';queued=nil
+  if key==CONFIRM_EVACUATION then
+   request(api,'evacuate',chief,player,key)
+  end
+  return
+ end
  if key==EXIT then
   if s.phase~='list' then return end
-  invalidate();close(s);return
+  s.phase='finished';queued=nil;return
  end
  if key==PREV or key==NEXT then
   if s.phase~='list' or invoke(dialogue,'isLocked',line) then return end
   s.page=s.page+(key==NEXT and 1 or -1);rows(s,api);prepareList(s)
-  reopen(s,s.nodes[LIST],'list');return
+  advance(s,s.nodes[LIST],'list');return
  end
  local slot=band(key,11210)
  if slot then
   if s.phase~='list' or invoke(dialogue,'isLocked',line) then return end
   local row=s.slots[slot];if not row then return end
   -- Copy strings, rather than retaining a mutable roster row or page index.
-  s.selected={id=row.id,label=row.label,slot=slot}
-  text(s.nodes[sid(11230+slot-1)],'Нанять замену для «'..row.label..'» за 10 000 кат?')
+  s.selected={id=row.id,label=row.label,slot=slot,replaceable=row.replaceable,newLedger=row.replaceable and api.newLedgerOffered()}
+  local question=row.replaceable and 'Нанять замену для «'..row.label..'» за 10 000 кат?'
+   or '«'..row.label..'». Замена пока недоступна.'
+  text(s.nodes[sid(11230+slot-1)],question..(s.selected.newLedger and LEGACY_ORDER or ''))
   text(s.nodes[sid(11240+slot-1)],'Да, нанять «'..row.label..'» за 10 000 кат.')
-  locked(s,s.nodes[sid(11240+slot-1)],false)
+  locked(s,s.nodes[sid(11240+slot-1)],not row.replaceable)
   locked(s,s.nodes[sid(11250+slot-1)],false)
-  reopen(s,s.nodes[sid(11230+slot-1)],'confirm');return
+  advance(s,s.nodes[sid(11230+slot-1)],'confirm',true);return
  end
  local pay,cancel=band(key,11240),band(key,11250)
  if not pay and not cancel then return end
  local selected=s.selected;local chosen=pay or cancel
  if s.phase~='confirm' or not selected or chosen~=selected.slot or invoke(dialogue,'isLocked',line) then return end
+ if not inView(dialogue,line,sid(11230+chosen-1)) then return end
  local frozen=s.slots[chosen]
  if not frozen or frozen.id~=selected.id then return end
  if cancel then
-  rows(s,api);prepareList(s);reopen(s,s.nodes[LIST],'list');return
+  rows(s,api);prepareList(s);advance(s,s.nodes[LIST],'list');return
  end
+ if not selected.replaceable then return end
  local deathID=selected.id
- invalidate();close(s)
- local ok,why=api.request('replace',chief,player,deathID)
- if ok==false then error('CHIEF_DIALOGUE_REQUEST_FAILED '..tostring(why),0)end
+ s.phase='finished';queued=nil
+ request(api,'replace',chief,player,key,deathID,selected.newLedger)
 end
 local function openQueued()
  local job=queued;if not job then return end
  queued=nil
  local s=job.session
- if active~=s or s.token~=job.token or s.phase~='queued' then return end
+ if active~=s or s.token~=job.token then return end
  local chief=call(s.chiefHand,'getCharacter');local player=call(s.playerHand,'getCharacter')
  if not chiefValid(chief) or not playerValid(player) or handle(chief)~=s.chiefKey or handle(player)~=s.playerKey
   or field(chief,'dialogue')~=s.dialogue then invalidate();return end
  local ended=call(s.dialogue,'conversationHasEnded')
  if ended==false then
-  -- Native GUI close messages may take more than one frame. Wait briefly
-  -- for this conversation to end, without restarting it or issuing NPC jobs.
   local target=handle(call(call(s.dialogue,'getConversationTarget'),'getCharacter'))
   if target and target~=s.playerKey then invalidate();return end
-  -- The outer native line may already have advanced to the prepared child
-  -- after its action callback. Adopt that real view rather than opening it
-  -- twice or waiting for a conversation that has legitimately continued.
-  if target==s.playerKey and field(s.dialogue,'currentLine')==job.node then
-   s.chief=chief;s.player=player;s.phase=job.phase;return
+  if not job.closing then
+   if job.nativeChild and target==s.playerKey and field(s.dialogue,'currentLine')==job.node then
+    s.chief=chief;s.player=player;s.phase=job.phase;return
+   end
+   job.closing=true;s.phase='queued';close(s)
+   ended=call(s.dialogue,'conversationHasEnded')
   end
-  job.waits=(job.waits or 0)+1
-  if job.waits>=5 then invalidate();error('CHIEF_SELECTION_CLOSE_TIMEOUT',0)end
-  queued=job;return
- elseif ended~=true then
+  if ended==false then
+   job.waits=(job.waits or 0)+1
+   if job.waits>=5 then invalidate();error('CHIEF_SELECTION_CLOSE_TIMEOUT',0)end
+   queued=job;return
+  end
+ end
+ if ended~=true then
   invalidate();error('CHIEF_SELECTION_CLOSE_STATE_UNAVAILABLE',0)
  end
  s.chief=chief;s.player=player;s.phase=job.phase;s.reopening=true
@@ -278,12 +360,13 @@ local function openQueued()
  end
 end
 function M.start(api)
- assert(type(api)=='table' and type(api.request)=='function' and type(api.listLosses)=='function','CHIEF_SERVICE_API_REQUIRED')
+ assert(type(api)=='table' and type(api.request)=='function' and type(api.listLosses)=='function'
+  and type(api.newLedgerOffered)=='function' and type(api.hireOffer)=='function','CHIEF_SERVICE_API_REQUIRED')
  if started then return true end
  local actionHook=Events.on('Dialogue::_doActions',function(dialogue,line)
   local ok,why=pcall(dispatch,api,dialogue,line)
   if not ok then
-   local s=active;invalidate();if s and s.dialogue==dialogue then pcall(close,s)end
+   invalidate()
    transitionError('NPC_CHIEF_SELECTION_ERROR '..tostring(why))
   end
  end)
@@ -293,7 +376,12 @@ function M.start(api)
   if not ok then invalidate();transitionError('NPC_CHIEF_SELECTION_OPEN_ERROR '..tostring(why))end
  end),'CHIEF_SELECTION_FRAME_HOOK_UNAVAILABLE')
  assert(Events.on('Dialogue::endDialogue',function(dialogue)
-  if active and active.dialogue==dialogue and not active.internalClose and active.phase~='queued' and not active.reopening then invalidate()end
+  if active and active.dialogue==dialogue and not active.internalClose and not active.reopening then
+   local pending=queued and queued.session==active
+   -- Terminal replies used to change pages can naturally finish this
+   -- conversation before the requested view is opened on the next frame.
+   if not pending or queued.nativeChild then invalidate()end
+  end
  end),'CHIEF_SELECTION_END_HOOK_UNAVAILABLE')
  assert(Events.on('Dialogue::startPlayerConversation',function(dialogue,_,line,default)
   if active and not active.reopening then

@@ -3,6 +3,7 @@
 -- No moving, creating or deleting furniture; bar's special split is untouched.
 local Log=require('Diagnostics')
 local Audit=require('Core.Ownership.Furniture')
+local Retirement=require('Core.Ownership.Retirement')
 local M={}
 local states={}
 local MAX_ATTEMPTS=3
@@ -52,6 +53,7 @@ function M.apply(parent,source)
   return false,'UNSUPPORTED_SHOP'
  end
  local k=key(parent)
+ if Retirement.retired(k) then return false,'BUILDING_RETIRED' end
  if not k or call(parent,'isValid')~=true then return false,'INVALID_PARENT' end
  if ownerID(parent)~=FACTION or call(parent,'isThePlayer')~=false then
   return false,'PARENT_OWNER_NOT_READY'
@@ -110,6 +112,7 @@ function M.request(parent,source)
   return false,'UNSUPPORTED_SHOP'
  end
  local k=key(parent)
+ if Retirement.retired(k) then return false,'BUILDING_RETIRED' end
  local handle=call(parent,'getHandle')
  if not k or not handle then return false,'HANDLE_UNAVAILABLE' end
  local old=states[k]
@@ -117,6 +120,7 @@ function M.request(parent,source)
  local s={key=k,handle=handle,shop=shop,source=source or 'UNKNOWN',frame=0,attempts=0}
  states[k]=s
  local ok,hook=pcall(Events.on,'MyGUI::Gui::eventFrameStart',function()
+  if Retirement.retired(k) then M.retire(k);return end
   s.frame=s.frame+1
   if s.attempts>=MAX_ATTEMPTS or s.frame>FRAMES[MAX_ATTEMPTS]+3 then
    if s.hook then Events.off(s.hook);s.hook=nil end
@@ -145,6 +149,11 @@ function M.request(parent,source)
  if ok and hook then s.hook=hook;return true,'SCHEDULED' end
  states[k]=nil
  return false,'FRAME_HOOK_FAIL '..tostring(hook)
+end
+function M.retire(k)
+ local s=states[k]
+ if s and s.hook then Events.off(s.hook) end
+ states[k]=nil
 end
 function M.resetSession()
  for _,s in pairs(states)do if s.hook then Events.off(s.hook) end end

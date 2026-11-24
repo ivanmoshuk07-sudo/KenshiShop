@@ -283,7 +283,28 @@ test('hired patrol stands by the tower during the day and patrols natively at ni
  for i=1,50 do s.now=1380+i;Duty.tick(s,ms)end;assert(calls.jobs==3 and calls.rethinks==6)
  s.now=1800;active=141;Duty.tick(s,ms);assert(calls.jobs==6 and calls.rethinks==9)
 end)
-test('two hired squads use separate post rows without claiming each other or original slots',function()
+test('three tower guards receive distinct interior native posts through every shift',function()
+ fixture('guard','police',3)
+ s.cfg.serviceHired=true;s.cfg.towerPosts=true
+ Duty.tick(s,ms)
+ local posts={}
+ for _,m in ipairs(ms)do
+  local duty=s.postDuty.members[m.key]
+  local node=assert(duty.node)
+  assert(duty.mode=='FLOOR_0' and node.floor==0 and node.outside==false)
+  assert(node.root.isInsideBuilding:toString()==s.key)
+  local id=node.handle:toString();assert(not posts[id]);posts[id]=true
+  local _,goal=Jobs.find(m.char)
+  assert(goal and goal.subject:toString()==id and goal.priority==1 and goal.startTime==0 and goal.endTime==24)
+ end
+ local before=calls.rethinks
+ for _,time in ipairs({12*60+30,23*60,24*60,30*60})do
+  s.now=time;Duty.tick(s,ms)
+  for _,m in ipairs(ms)do assert(posts[s.postDuty.members[m.key].node.handle:toString()])end
+ end
+ assert(calls.jobs==3 and calls.rethinks==before)
+end)
+test('separately indexed outdoor patrol posts never claim ordinary slots',function()
  fixture('patrol','police',6);s.cfg.count=3;s.cfg.patrolNight=true;s.cfg.streetSlotBase=3
  local first={ms[1],ms[2],ms[3]};local second={ms[4],ms[5],ms[6]}
  Duty.tick(s,first)

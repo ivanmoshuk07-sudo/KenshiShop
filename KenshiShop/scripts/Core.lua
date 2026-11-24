@@ -3,7 +3,8 @@ local Registry=require('Core.Registry')
 local Log=require('Diagnostics')
 local Construction=require('Construction')
 local Ownership=require('Core.Ownership.Registry')
-local M={version='1.0-beta.8'}
+local Retirement=require('Core.Ownership.Retirement')
+local M={version='1.0-beta.8.1'}
 local started=false
 local npcLoadedLogged={}
 function M.start()
@@ -14,7 +15,7 @@ function M.start()
  Events.on('Building::_NV_notifyConstructionComplete',function(building)
   local ok,errorText=pcall(function()
    local shop=Registry.byBuilding(building)
-   if shop then
+   if shop and not Retirement.retired(building:getHandle():toString()) then
     local observed,err=pcall(Ownership.onConstruction,shop.name,building)
     if not observed then Log.error('OWN_CONSTRUCTION_DISPATCH '..shop.name..' '..tostring(err)) end
     Log.info('CONSTRUCTION_MATCH '..shop.sid..' (independent '..shop.name..' queue)')
@@ -37,7 +38,7 @@ function M.start()
  Events.on('Building::_NV_onBuildingLoaded',function(building)
   local success,problem=pcall(function()
    local shop=Registry.byBuilding(building)
-   if shop then
+   if shop and not Retirement.retired(building:getHandle():toString()) then
     Construction.observe(building,'building_loaded_no_furnish')
     -- Independent, bounded ownership/protection audit: no NPC creation.
     local audited,ownerError=pcall(Ownership.onLoaded,shop.name,building)
@@ -51,6 +52,8 @@ function M.start()
     -- Reattach saved NPC squads (read-only lookup); no spawn, appearance or outfit changes.
     local resumed,why=pcall(shop.npcResume,building)
     if not resumed then Log.error('NPC_RESUME_LOAD_EXCEPTION '..shop.name..' '..tostring(why)) end
+    local services=rawget(_G,'KenshiShopPoliceServices')
+    if services and services.buildingLoaded then services.buildingLoaded(key) end
     if shop.name=='bar' and shop.furnitureLoad then
       local okAudit,errAudit=pcall(shop.furnitureLoad,building)
       if not okAudit then Log.error('BAR_FURN_AUDIT_DISPATCH '..tostring(errAudit)) end
@@ -64,7 +67,7 @@ function M.start()
  local factionHook,id=pcall(Events.on,'Building::_NV_setFaction',function(building)
   local ok,err=pcall(function()
    local shop=Registry.byBuilding(building)
-   if shop then Ownership.onFactionChanged(shop.name,building) end
+   if shop and not Retirement.retired(building:getHandle():toString()) then Ownership.onFactionChanged(shop.name,building) end
   end)
   if not ok then Log.error('OWN_FACTION_EVENT '..tostring(err)) end
  end)

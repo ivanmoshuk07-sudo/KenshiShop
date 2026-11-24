@@ -53,6 +53,19 @@ function M.monitorResident(shop,building,now)
  if not m or not m.monitorResident then return false,'SHOP_MONITOR_UNAVAILABLE' end
  return m.monitorResident(building,now)
 end
+function M.retire(shop,buildingID)
+ local m=modules[shop]
+ if not m then return end
+ m.retire(buildingID)
+ if shop=='bar' then
+  require('Core.Bar.Building.FurnitureRestore').retire(buildingID)
+  require('Core.Bar.Building.LiveFurniture').retire(buildingID)
+ else
+  require('Core.Ownership.NPCFurnitureRestore').retire(buildingID)
+  require('Core.Ownership.NPCFurnitureHandles').retire(buildingID)
+  require('Core.Ownership.NPCFurnitureCreate').retire(buildingID)
+ end
+end
 function M.audit(shop,building)
  local m=modules[shop]
  if not m then return 'OWN_SHOP_UNAVAILABLE '..tostring(shop) end

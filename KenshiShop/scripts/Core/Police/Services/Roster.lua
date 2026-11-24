@@ -109,6 +109,50 @@ function M.reset()
  -- handles from the preceding world while service controllers are absent.
  if type(Transport.resetMembers)=='function' then Transport.resetMembers()end
 end
+function M.platoons()
+ local w=world()
+ if not w then return {},false,'WORLD_UNAVAILABLE' end
+ return lists(w)
+end
+function M.hiredInTown(townID)
+ local grouped,complete,why=M.platoons()
+ if not complete then return nil,why end
+ local seen,patrols={},{}
+ for _,list in ipairs(grouped)do
+  for _,p in ipairs(list)do
+   local template=dataID(field(p,'squadTemplate'))
+   if template==Config.hired or template==Config.hiredGuard then
+    local pid=platoonID(p)
+    if not pid or factionID(p)~=Config.faction then return nil,'HIRED_NATIVE_ID_UNVERIFIED' end
+    if not seen[pid] and not Store.retiredPlatoon(pid) and field(p,'isDead')~=true then
+     seen[pid]=true
+     local house=homeHandle(p)
+     local key=handleID(house)
+     local building=call(house,'getBuilding')
+     local town=id(call(building,'getTown'))
+     local recorded=Store.get().patrols[pid]
+     if not town and not (key and recorded and recorded.building==key) then
+      return nil,'HIRED_NATIVE_HOME_UNVERIFIED'
+     end
+     if town==townID then
+      if not key or call(building,'isValid')~=true or id(building)~=key
+       or dataID(call(building,'getGameData'))~=Config.tower or Store.retiredBuilding(key) then
+       return nil,'HIRED_NATIVE_TOWER_UNVERIFIED'
+      end
+      rememberBuilding(building,key)
+      patrols[#patrols+1]={pid=pid,building=key,town=townID,template=template}
+     end
+    end
+   end
+  end
+ end
+ table.sort(patrols,function(a,b)
+  local first,second=tonumber(a.pid:match('_(%d+)$')),tonumber(b.pid:match('_(%d+)$'))
+  if first~=second then return (first or math.huge)<(second or math.huge) end
+  return a.pid<b.pid
+ end)
+ return patrols
+end
 function M.findPlatoon(pid)
  pid=text(pid);if not pid then return nil,'PLATOON_ID_UNAVAILABLE' end
  local w=world();if not w then return nil,'WORLD_UNAVAILABLE' end
@@ -119,10 +163,12 @@ function M.findPlatoon(pid)
  return nil,complete and 'TRUE_NOT_FOUND' or reason
 end
 function M.config(p)
- local cfg=Config.copy(dataID(field(p,'squadTemplate')))
+ local template=dataID(field(p,'squadTemplate'))
+ local cfg=Config.copy(template)
  if cfg and cfg.serviceHired then
   local pid=platoonID(p)
   local saved=pid and Store.get().patrols[pid]
+  if saved and type(saved.number)=='number' then cfg=Config.forHire(saved.number,template) end
   cfg.existingID=pid
   if type(saved)=='table' and type(saved.base)=='number' then cfg.streetSlotBase=saved.base end
  end
@@ -138,7 +184,7 @@ local function leaderID(p)
  return id(call(ap,'getSquadLeader')) or handleID(field(p,'squadleader'))
 end
 function M.observe(s,ms)
- if not Store.ready() then return false,'STORE_NOT_READY' end
+ if not Store.evacuationReady() then return false,'STORE_NOT_READY' end
  if type(s)~='table' or type(ms)~='table' then return false,'ROSTER_ARGUMENTS_INVALID' end
  local cfg=s.cfg
  if not cfg or not Config.copy(cfg.template) or factionID(s.platoon)~=Config.faction then return false,'FOREIGN_PLATOON' end
@@ -147,6 +193,7 @@ function M.observe(s,ms)
  local key=id(b)
  local town=id(call(b,'getTown'))
  if not pid or not key or not town or (s.key and s.key~=key) then return false,'ROSTER_HOME_UNAVAILABLE' end
+ if Store.retiredBuilding(key) or Store.retiredPlatoon(pid) then return false,'ROSTER_RETIRED' end
  rememberBuilding(b,key)
  local roster=Store.get().roster
  local ordered,seen,used={},{},{}
@@ -155,7 +202,7 @@ function M.observe(s,ms)
   if member and not seen[member] then
    seen[member]=true;ordered[#ordered+1]={key=member,char=m.char}
    local old=roster[member]
-   local slot=cfg.role=='guard' and guardSlot(call(m.char,'getName')) or nil
+  local slot=cfg.role=='guard' and not cfg.towerPosts and guardSlot(call(m.char,'getName')) or nil
    slot=slot or (type(old)=='table' and old.slot)
    if type(slot)=='number' then used[slot]=true end
   end
@@ -166,14 +213,14 @@ function M.observe(s,ms)
   local row=roster[m.key]
   if type(row)~='table' then row={id=m.key,dead=false};roster[m.key]=row end
   local name=text(call(m.char,'getName'))
-  local slot=cfg.role=='guard' and guardSlot(name) or nil
+  local slot=cfg.role=='guard' and not cfg.towerPosts and guardSlot(name) or nil
   slot=slot or row.slot
   if type(slot)~='number' then slot=1;while used[slot]do slot=slot+1 end;used[slot]=true end
   row.id=m.key;row.pid=pid;row.building=key;row.town=town;row.squadTemplate=cfg.template;row.slot=slot
   row.charTemplate=dataID(call(m.char,'getGameData')) or row.charTemplate
   row.race=dataID(field(call(m.char,'getRace'),'data')) or row.race
   row.name=name or row.name
-  if cfg.role=='guard' then row.floor=slot-1 end
+  if cfg.role=='guard' then row.floor=cfg.towerPosts and 0 or slot-1 end
   if lead then row.leader=lead==m.key end
   -- Observation never revives an already confirmed death or clears receipts.
   if call(m.char,'isDead')==true then row.dead=true end
@@ -181,14 +228,16 @@ function M.observe(s,ms)
  return true,#ordered
 end
 function M.death(c)
- if not Store.ready() then return false,'STORE_NOT_READY' end
+ if not Store.evacuationReady() then return false,'STORE_NOT_READY' end
+ if factionID(c)~=Config.faction then return false,'FOREIGN_CHARACTER' end
  if call(c,'isDead')~=true then return false,'DEATH_UNCONFIRMED' end
  local key=id(c);if not key then return false,'CHARACTER_ID_UNAVAILABLE' end
  local row=Store.get().roster[key]
+ local p=platoon(c)
+ if Store.retiredPlatoon(platoonID(p)) or (row and Store.retiredBuilding(row.building)) then return false,'ROSTER_RETIRED' end
  if type(row)~='table' then
-  local p=platoon(c)
   local cfg=M.config(p)
-  if not cfg or factionID(c)~=Config.faction or factionID(p)~=Config.faction then return false,'FOREIGN_CHARACTER' end
+  if not cfg or factionID(p)~=Config.faction then return false,'FOREIGN_CHARACTER' end
   local h=homeHandle(p,c)
   local home=handleID(h)
   local b=call(h,'getBuilding') or (home and M.building(home))
@@ -203,29 +252,32 @@ function M.death(c)
  row.race=dataID(field(call(c,'getRace'),'data')) or row.race
  row.name=text(call(c,'getName')) or row.name
  local cfg=Config.copy(row.squadTemplate)
- local slot=cfg and cfg.role=='guard' and guardSlot(row.name)
+ local slot=cfg and cfg.role=='guard' and not cfg.towerPosts and guardSlot(row.name)
  if slot then row.slot=slot;row.floor=slot-1 end
  row.dead=true
  return true,row
 end
-function M.scan(fresh)
- if not Store.ready() then return false,'STORE_NOT_READY' end
+function M.scan(fresh,requestedTown,expectedShops)
+ if not Store.evacuationReady() then return false,'STORE_NOT_READY' end
  local w=world();if not w then return false,'WORLD_UNAVAILABLE' end
  local grouped,complete,reason=lists(w)
- local seen,count={},0
+ local seen,count,unverified={},0,false
+ local present,matchedTown,covered={},false,{}
  for _,list in ipairs(grouped)do for _,p in ipairs(list)do
   local pid=platoonID(p)
   if pid and not seen[pid] then
    seen[pid]=true
    local cfg=M.config(p)
-   if cfg and factionID(p)==Config.faction then
+   if cfg and factionID(p)==Config.faction and not Store.retiredPlatoon(pid) then
     local h=homeHandle(p)
     local key=handleID(h)
-    if key then
+    if key and not Store.retiredBuilding(key) then
      -- Ownerships returns a copied hand, including for unloaded platoons.
      buildings[key]=h
      local b=call(h,'getBuilding')
-     if b and call(p,'getActivePlatoon') then
+     local sameTown=requestedTown and id(call(b,'getTown'))==requestedTown
+     if sameTown then matchedTown=true end
+     if b and (not requestedTown or sameTown) and call(p,'getActivePlatoon') then
       -- One fresh global membership pass covers every platoon in this scan;
       -- subsequent consumers share it instead of rewalking all loaded NPCs.
       local ok,ms=pcall(Transport.members,w,p,cfg.count,fresh==true)
@@ -233,7 +285,19 @@ function M.scan(fresh)
        fresh=false
        local observed,n=M.observe({cfg=cfg,platoon=p,building=b,key=key},ms)
        if observed then count=count+n end
+       if sameTown then
+        local alive=0
+        for _,m in ipairs(ms)do
+         if call(m.char,'isDead')==false then
+          alive=alive+1;local member=id(m.char);if member then present[member]=true end
+         end
+        end
+        if alive~=cfg.count then unverified=true end
+        covered[key]=covered[key] or {};covered[key][cfg.template]=true
+       end
+      elseif sameTown then unverified=true
       end
+     elseif sameTown then unverified=true
      end
     end
    end
@@ -249,6 +313,21 @@ function M.scan(fresh)
    end
   end)
   if not ok then return false,'CORPSE_ROSTER_UNAVAILABLE' end
+ end
+ if requestedTown then
+  if unverified or not matchedTown then return false,'TOWN_ROSTER_PARTIAL' end
+  for building,shop in pairs(expectedShops or {})do
+   for template,cfg in pairs(Config.templates)do
+    if cfg.shop==shop and not cfg.serviceHired and not (covered[building] and covered[building][template]) then
+     return false,'TOWN_ROSTER_PARTIAL'
+    end
+   end
+  end
+  for member,row in pairs(Store.get().roster)do
+   if row.town==requestedTown and row.dead==false and not present[member] then
+    return false,'TOWN_ROSTER_PARTIAL'
+   end
+  end
  end
  return complete,complete and count or reason
 end

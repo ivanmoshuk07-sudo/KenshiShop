@@ -35,7 +35,7 @@ if __name__ == '__main__':
     for path in files:
         run(path.read_bytes(), path, False)
     print('Lua syntax OK:', len(files), 'files', flush=True)
-    suites = sys.argv[1:] or ['member_index', 'monitor_queue', 'supply_queue', 'runtime', 'controller', 'duty', 'service86', 'native87', 'native88', 'post89', 'care90', 'limbs91', 'police_store', 'police_roster', 'police_orders', 'police_dialogue', 'police_patrol', 'police_recruit', 'police_services']
+    suites = sys.argv[1:] or ['member_index', 'monitor_queue', 'supply_queue', 'runtime', 'controller', 'duty', 'service86', 'native87', 'native88', 'post89', 'care90', 'limbs91', 'police_store', 'police_roster', 'police_orders', 'police_dialogue', 'police_patrol', 'police_recruit', 'police_services', 'police_evacuees', 'police_property']
     for name in suites:
         path = root/'Development/tests'/f'{name}.lua'
         code = ('arg={' + json.dumps(str(root/'KenshiShop/scripts')) + '}\n').encode() + path.read_bytes()

@@ -86,7 +86,7 @@ def literal_requires(source):
 def audit_lua():
     scripts = ROOT / 'KenshiShop/scripts'
     files = set(scripts.rglob('*.lua'))
-    require(len(files) == 118, f'expected 118 Lua modules, found {len(files)}')
+    require(len(files) == 122, f'expected 122 Lua modules, found {len(files)}')
     seen, todo = set(), [scripts / 'init/main.lua']
     while todo:
         path = todo.pop()
@@ -103,14 +103,14 @@ def audit_lua():
     require(seen == files, 'unreachable Lua modules: ' + ', '.join(
         str(p.relative_to(scripts)) for p in sorted(files - seen)))
     for name in ['Core.lua', 'KenshiLuaConsole.lua']:
-        require('1.0-beta.8' in (scripts / name).read_text(encoding='utf-8'),
-                f'{name} does not identify beta 1.0')
-    print('PASS all 118 Lua modules reachable from init.main; literal requires resolve; beta version matches')
+        require("'1.0-beta.8.1'" in (scripts / name).read_text(encoding='utf-8'),
+                f'{name} does not identify beta.8.1')
+    print('PASS all 122 Lua modules reachable from init.main; literal requires resolve; beta version matches')
 
 
 def audit_mods():
     mods = []
-    for name, count in [('KenshiShop', 279), ('KenshiShop_LegendaryCompat', 73)]:
+    for name, count in [('KenshiShop', 288), ('KenshiShop_LegendaryCompat', 73)]:
         path = ROOT / name / (name + '.mod')
         mod = km.ler(path)
         require(km.serializar(mod) == path.read_bytes(), f'{name}: binary roundtrip differs')
