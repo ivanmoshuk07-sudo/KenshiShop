@@ -41,8 +41,8 @@ jobs:
           lua Development/tests/police_services.lua KenshiShop/scripts
           lua Development/tests/police_evacuees.lua KenshiShop/scripts
           lua Development/tests/police_property.lua KenshiShop/scripts
-      - name: Validate chief services and preserved beta.8 data
-        run: python Development/tests/data_beta8_1.py
+      - name: Validate race immunities and preserved gameplay records
+        run: python Development/tests/data_beta8_2.py
       - name: Choose the version
         id: version
         env:

@@ -15,13 +15,13 @@ def baseline(path):
     return subprocess.check_output(['git', 'show', f'v1.0-beta.8:{path}'], cwd=ROOT)
 
 
-def main():
+def main(updated_path=None):
     path = 'KenshiShop/KenshiShop.mod'
     with tempfile.NamedTemporaryFile() as source:
         source.write(baseline(path))
         source.flush()
         original = km.ler(source.name)
-    updated = km.ler(ROOT / path)
+    updated = km.ler(updated_path or ROOT / path)
     old = {row['strid']: row for row in original['records']}
     new = {row['strid']: row for row in updated['records']}
     assert not old.keys() - new.keys()
@@ -56,4 +56,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    main(*sys.argv[1:2])

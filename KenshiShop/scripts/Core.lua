@@ -4,7 +4,7 @@ local Log=require('Diagnostics')
 local Construction=require('Construction')
 local Ownership=require('Core.Ownership.Registry')
 local Retirement=require('Core.Ownership.Retirement')
-local M={version='1.0-beta.8.1'}
+local M={version='1.0-beta.8.2'}
 local started=false
 local npcLoadedLogged={}
 function M.start()

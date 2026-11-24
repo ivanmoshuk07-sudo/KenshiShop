@@ -1,8 +1,8 @@
-# KenshiShop — 1.0 beta.8.1
+# KenshiShop — 1.0 beta.8.2
 
-**[Скачать полный мод beta.8.1](https://github.com/ivanmoshuk07-sudo/KenshiShop/releases/download/v1.0-beta.8.1/KenshiShop_1.0-beta.8.1_FULL.zip)** · [Инструкция и изменения](README_BETA8_RU.md) · [Прежняя полная beta.8](https://github.com/ivanmoshuk07-sudo/KenshiShop/releases/download/v1.0-beta.8/KenshiShop_1.0-beta.8_FULL.zip)
+**[Скачать полный мод beta.8.2](https://github.com/ivanmoshuk07-sudo/KenshiShop/releases/download/v1.0-beta.8.2/KenshiShop_1.0-beta.8.2_FULL.zip)** · [Инструкция и изменения](README_BETA8_RU.md) · [Прежняя полная beta.8.1](https://github.com/ivanmoshuk07-sudo/KenshiShop/releases/download/v1.0-beta.8.1/KenshiShop_1.0-beta.8.1_FULL.zip)
 
-Обновлены услуги начальника охраны на базе beta.8. Сохранение хранит подтверждённые потери, оплаты и состояние ухода из города.
+Рабочий, солдат и принц Улья получили ванильный иммунитет к кислоте. Сохранение хранит подтверждённые потери, оплаты и состояние ухода из города.
 
 ## Установка
 
