@@ -13,10 +13,13 @@ local Transport=require('Core.NPC.Transport')
 local Nodes=require('Core.NPC.NativeNodes')
 local Posts=require('Core.NPC.PostDuty')
 local Work=require('Core.NPC.RoleAI')
+local Existing=require('Core.NPC.ExistingSquads')
+local Residence=require('Core.NPC.Residence')
 local Live=require('Core.NPC.LiveState')
 local Log=require('Diagnostics')
 local M={}
-local queue,drivers,pending,attached,dialogueStatus={},{},{},{},{}
+local queue,drivers,attached,dialogueStatus={},{},{},{}
+local hireWait={}
 local started,hooksReady,hooksInstalled,loadedSeen=false,false,false,false
 local frames,nextScan,nextReconcile,epoch,sequence=0,0,0,0,0
 local indexed,recoverOrders,recoverPatrols,recoveryQueue=false,{},{},{}
@@ -224,43 +227,103 @@ local function finishReplacement(order,plan,receipt)
  report('REPLACEMENT_READY','order='..order.id..' old='..plan.record.id..' new='..receipt.member..' pid='..receipt.pid)
  return true
 end
-local function finishHired(order,p,building)
+local function resident(building)
+ return Live.call(field(building,'residentSquad'),'getPlatoon')
+end
+local function nativeTemplate(p)return field(field(p,'squadTemplate'),'stringID')end
+local function nativeFaction(p)return field(Live.call(Live.call(p,'getFaction'),'getData'),'stringID')end
+local function regularResident(building,p)
+ local template=nativeTemplate(p)
+ if template~='310-KenshiShop.mod' and template~='311-KenshiShop.mod' then return false end
+ if nativeFaction(p)~=Config.faction then return false end
+ local home=field(Live.call(p,'getOwnerships'),'_homeBuilding')
+ return Live.call(home,'toString')==id(building)
+end
+local function findResident(building,preferred)
+ if preferred then
+  local p=Roster.findPlatoon(preferred)
+  if regularResident(building,p) then return p end
+ end
+ -- Newer beta.11 receipts may point at the preceding hired patrol. Resolve
+ -- the original squads by town building and their exact templates.
+ for _,template in ipairs({'311-KenshiShop.mod','310-KenshiShop.mod'})do
+  local p=Existing.find(building,Config.templates[template])
+  if regularResident(building,p) then return p end
+ end
+end
+local function restoreTowerResident(building,preferred,paid,discovered)
+ local current=resident(building)
+ if regularResident(building,current) then return current end
+ if current then
+  local currentID=Live.call(current,'getPlatoonStringID')
+  local row=currentID and Store.get().patrols[currentID]
+  if not row then
+   for _,candidate in ipairs(discovered or {})do if candidate.pid==currentID then row=candidate;break end end
+  end
+  if nativeTemplate(current)~=Config.hired or nativeFaction(current)~=Config.faction
+   or not row or row.building~=id(building) or row.town~=id(Live.call(building,'getTown')) then
+   return nil,'FOREIGN_TOWER_RESIDENT_PRESERVED'
+  end
+ elseif not paid or Live.call(field(building,'residentSquad'),'isNull')~=true then
+  return nil,'TOWER_RESIDENT_LOADING'
+ end
+ local restore=findResident(building,preferred)
+ if not restore then return nil,'TOWER_ORIGINAL_RESIDENT_LOADING' end
+ local ok,why=Residence.bind(building,restore,current)
+ if not ok or not regularResident(building,resident(building)) then
+  return nil,why or 'TOWER_RESIDENT_RESTORE_PENDING'
+ end
+ report('TOWER_RESIDENT_RESTORED','building='..id(building)..' pid='..Live.call(restore,'getPlatoonStringID'))
+ return restore
+end
+local function finishHired(order,p,building,fresh)
  local pid=Live.call(p,'getPlatoonStringID')
  local row=pid and Store.get().patrols[pid]
  if not row then return false,'HIRED_RECEIPT_MISSING'end
  if row.order~=order.id or syncHireReceipt(pid,row)~=order then return false,'HIRED_RECEIPT_MISMATCH'end
- local complete=order.status=='complete'
- -- Once adopted, the ordinary controller owns its roster and duty. Historical
- -- receipts are retained for payment idempotency, not polled as active work.
- if attached[pid] and complete then return true end
- local residentPID=order.metadata.residentPID
- -- This rollback compensates only for a factory allocation overwriting the
- -- tower resident. A completed hire must preserve the tower's current owner,
- -- including a replacement chief created long after this paid receipt.
- if not complete and not row.adopted and residentPID then
-  local actual=Live.call(Live.call(field(building,'residentSquad'),'getPlatoon'),'getPlatoonStringID')
-  if actual~=residentPID then
-   if actual and actual~=order.pid then return false,'FOREIGN_TOWER_RESIDENT_PRESERVED'end
-   local original=Roster.findPlatoon(residentPID)
-   if not original then return false,'TOWER_RESIDENT_LOADING'end
-   building:setResidentSquad(original)
-   if Live.call(Live.call(field(building,'residentSquad'),'getPlatoon'),'getPlatoonStringID')~=residentPID then return false,'TOWER_RESIDENT_RESTORE_PENDING'end
+ if id(building)~=row.building or id(Live.call(building,'getTown'))~=row.town then
+  return false,'HIRED_SERVICE_BUILDING_CHANGED'
+ end
+ if attached[pid] then return true end
+ -- Paid extras used to replace this single building slot. Only repair it
+ -- when a matching paid squad occupies it, or a pending order left it empty.
+ local current=resident(building)
+ if nativeTemplate(current)==Config.hired or (order.status~='complete' and not regularResident(building,current)) then
+  local restored,why=restoreTowerResident(building,order.metadata.residentPID,true)
+  if not restored then return false,why end
+ end
+ local cfg=hiredConfig(pid,row)
+ local ok,why=driverFor(p,cfg).adopt(building,p,{fresh=fresh==true})
+ if not ok then return false,why end
+ attached[pid]=true;row.adopted=true;hireWait[pid]=nil
+ recoverPatrols[pid]=nil
+ report('HIRED_MONITOR_READY','order='..order.id..' pid='..pid..' base='..row.base)
+ return true
+end
+local function reportHireWait(pid,why)
+ if hireWait[pid]==why then return end
+ hireWait[pid]=why
+ report('HIRED_WAIT','pid='..pid..' reason='..tostring(why))
+end
+function M.hiredDuty(s,ms)
+ if not Store.ready() or not attached[s.pid] or not s.postDuty then return end
+ local row=Store.get().patrols[s.pid]
+ if not row or row.building~=s.key then return end
+ local order=Store.get().orders[row.order]
+ if not order or order.status~='pending' then return end
+ local mode=Posts.day(s.now) and 'DAY' or 'NIGHT'
+ local count=0
+ for _,m in ipairs(ms)do
+  if Live.call(m.char,'isDead')~=true then
+   local member=s.postDuty.members[m.key]
+   if not member or member.mode~=mode then return end
+   count=count+1
   end
  end
- local cfg=hiredConfig(order.pid,row)
- local ms=actorCount(p,cfg)
- if not complete and (not ms or #ms~=3) then return false,'HIRED_MEMBERS_LOADING'end
- local driver=driverFor(p,cfg)
- if not attached[order.pid] then
-  local ok,why=driver.adopt(building,p,{fresh=not row.adopted})
-  if not ok then return false,why end
-  attached[order.pid]=true
- end
- row.adopted=true;order.status='complete'
- recoverPatrols[order.pid]=nil
- if ms then Roster.observe({cfg=cfg,platoon=p,building=building,key=id(building),now=Live.clock()},ms)end
- report(complete and 'HIRED_RESUMED' or 'HIRED_READY','order='..order.id..' pid='..order.pid..' count='..tostring(ms and #ms)..' day=posts night=patrol base='..row.base)
- return true
+ if count==0 then return end
+ order.status='complete'
+ report('HIRED_DUTY_READY','order='..order.id..' pid='..s.pid..' members='..count..' shift='..mode)
+ notify('Оплаченный патруль получил задачи. Днём — посты у башни, ночью — патруль.')
 end
 local function pendingUnknown(town)
  for _,order in pairs(Store.get().orders)do
@@ -361,8 +424,7 @@ local function replace(ctx,selectedID)
    record.order=tx.id
    local result,err,uncertain=Recruit.spawn(plan)
    if result then
-    tx.pid=result.pid;tx.member=result.member;tx.metadata.recruitStages=result.stages or {}
-    pending[tx.id]={plan=plan,receipt=result}
+    tx.pid=result.pid;tx.member=result.member or id(result.root);tx.metadata.recruitStages=result.stages or {}
     if not err and finishReplacement(tx,plan,result) then return result,nil,false end
     result.pending=true;return result,err or 'REPLACEMENT_INITIALIZING',true
    end
@@ -371,15 +433,17 @@ local function replace(ctx,selectedID)
  track(order)
  if order and (order.status=='refunded' or order.status=='cancelled') then record.order=nil end
  if order and order.status=='complete' then
-  pending[order.id]=nil;notify('Замена нанята за 10 000 кат. Новый NPC направляется на службу.')
+  notify('Замена нанята за 10 000 кат. Новый NPC направляется на службу.')
  elseif order and order.status=='pending' then notify('Заказ замены оплачен. Ожидается завершение нативного создания и назначения; повторной оплаты не будет.')
  else failed('replace',reason,order)end
 end
 local function hire(ctx,nonce)
- local resident=Live.call(field(ctx.building,'residentSquad'),'getPlatoon')
-  or field(Live.call(ctx.chief,'getPlatoon'),'me')
- local residentPID=Live.call(resident,'getPlatoonStringID')
- if not residentPID then notify('Привязка начальника к башне пока недоступна. Деньги не списаны.');return end
+ local regular,reason=restoreTowerResident(ctx.building,nil,false,ctx.nativePatrols)
+ local residentPID=Live.call(regular,'getPlatoonStringID')
+ if not residentPID then
+  report('HIRED_TOWER_CHECK',reason)
+  notify('Штатный отряд башни пока не подтверждён. Деньги не списаны.');return
+ end
  local number=ctx.nextPatrolNumber or 1
  if not ctx.nextPatrolNumber then
   for _,row in pairs(Store.get().patrols)do
@@ -409,17 +473,20 @@ local function hire(ctx,nonce)
    if not pid then return nil,'HIRED_IDENTITY_LOADING',true end
    tx.pid=pid
    Store.get().patrols[pid]={pid=pid,building=ctx.key,town=ctx.town,base=base,number=number,order=tx.id}
-   local result={platoon=p,pid=pid}
-   if finishHired(tx,p,ctx.building) then return result,nil,false end
-   result.pending=true;return result,'HIRED_INITIALIZING',true
+   local result={pid=pid,pending=true}
+   local attachedNow,why=finishHired(tx,p,ctx.building,true)
+   if not attachedNow then reportHireWait(pid,why) end
+   return result,nil,false
   end)
  track(order)
- if order and order.status=='complete' then notify('Нанят отряд из 3 патрульных за 20 000 кат. Днём — посты у башни, ночью — патруль.')
- elseif order and order.status=='pending' then notify('Отряд оплачен. Ожидается завершение его нативного создания; повторного найма и списания не будет.')
+ if order and order.status=='pending' then notify('Отряд оплачен. Ожидается назначение задач.')
  else failed('hire',reason,order)end
 end
 local function process(request)
- local ctx,why=context(request.chief,request.player)
+ local chief=Live.call(request.chiefHand,'getCharacter')
+ local player=Live.call(request.playerHand,'getCharacter')
+ if id(chief)~=request.chiefKey or id(player)~=request.playerKey then return end
+ local ctx,why=context(chief,player)
  if not ctx then report('CONTEXT_UNAVAILABLE',why);notify('Начальник, игрок или башня сейчас недоступны для оформления заказа.');return end
  if request.action=='evacuate' then
   if not hooksInstalled then notify('Уход недоступен до подключения сохранения услуг.');return end
@@ -433,7 +500,7 @@ local function process(request)
  if not (hooksReady and Store.ready()) and not ctx.openNewLedger then
   notify('Данные найма сейчас недоступны. Деньги не списаны.');return
  end
- ctx.wallet=playerWallet(request.player)
+ ctx.wallet=playerWallet(player)
  if not ctx.wallet then report('PLAYER_WALLET_UNVERIFIED');notify('Кошелёк игрока недоступен. Деньги не списаны.');return end
  local price=request.action=='hire' and 20000 or 10000
  if Live.call(ctx.wallet,'getMoney')<price then failed(request.action,'INSUFFICIENT_FUNDS');return end
@@ -474,27 +541,33 @@ local function recover(task)
   local pid=task.key
   local row=Store.get().patrols[pid]
   if not row or attached[pid] or Store.retiredPlatoon(pid) or Store.retiredBuilding(row.building) then recoverPatrols[pid]=nil;return end
-  local p=Roster.findPlatoon(pid);local b=Roster.building(row.building)
-  if not p or not b then return end
+  local b=Roster.building(row.building)
+  if not b then reportHireWait(pid,'TOWER_NOT_LOADED');return end
+  local p=Roster.findPlatoon(pid)
+  if not p then reportHireWait(pid,'PLATOON_NOT_REGISTERED');return end
   local order=Store.get().orders[row.order]
-  if order then finishHired(order,p,b)
+  if order then
+   local ok,why=finishHired(order,p,b)
+   if not ok then reportHireWait(pid,why) end
   else
    local cfg=hiredConfig(pid,row)
    if driverFor(p,cfg).adopt(b,p) then attached[pid]=true;recoverPatrols[pid]=nil end
   end
  elseif task.kind=='replace' then
   local key=task.key;local order=Store.get().orders[key]
-  if not order or order.kind~='replace' or order.status~='pending' or Store.evacuation(order.metadata.town) then recoverOrders[key]=nil;pending[key]=nil;return end
-  local active=pending[key]
-  if not active and order.pid and order.member then
-   local record=Store.get().roster[order.metadata.deadID]
-   local b=Roster.building(order.metadata.building);local p=Roster.findPlatoon(order.pid)
-   if record and b and p then
-    local plan,receipt=Recruit.restore(record,b,p,order.member,order.metadata.recruitStages)
-    if plan and receipt then active={plan=plan,receipt=receipt};pending[key]=active end
-   end
+  if not order or order.kind~='replace' or order.status~='pending' or Store.evacuation(order.metadata.town) then
+   recoverOrders[key]=nil;return
   end
-  if active and finishReplacement(order,active.plan,active.receipt) then pending[key]=nil;notify('Оплаченная замена готова к службе.')end
+  -- Resolve the saved actor and platoon again on this frame. A native
+  -- replacement receipt is borrowed only for the original allocation call.
+  if not order.pid or not order.member then return end
+  local record=Store.get().roster[order.metadata.deadID]
+  local b=Roster.building(order.metadata.building)
+  if not record or not b then return end
+  local p=Roster.findPlatoon(order.pid)
+  if not p then return end
+  local plan,receipt=Recruit.restore(record,b,p,order.member,order.metadata.recruitStages)
+  if plan and receipt and finishReplacement(order,plan,receipt) then notify('Оплаченная замена готова к службе.')end
  end
 end
 local function scheduleRecovery(now)
@@ -516,8 +589,12 @@ function M.request(action,chief,player,selectedID,newLedger)
  if action~='replace' and action~='hire' and action~='evacuate' then return false,'UNKNOWN_SERVICE'end
  if action=='replace' and (type(selectedID)~='string' or selectedID=='') then return false,'LOSS_SELECTION_REQUIRED'end
  if #queue>=8 then return false,'SERVICE_QUEUE_FULL'end
+ local chiefHand,playerHand=Live.call(chief,'getHandle'),Live.call(player,'getHandle')
+ local chiefKey,playerKey=Live.call(chiefHand,'toString'),Live.call(playerHand,'toString')
+ if not chiefKey or not playerKey then return false,'SERVICE_PARTICIPANT_UNAVAILABLE' end
  sequence=sequence+1
- queue[#queue+1]={action=action,chief=chief,player=player,selectedID=selectedID,newLedger=newLedger==true,nonce=tostring(epoch)..':'..sequence}
+ queue[#queue+1]={action=action,chiefHand=chiefHand,playerHand=playerHand,chiefKey=chiefKey,playerKey=playerKey,
+  selectedID=selectedID,newLedger=newLedger==true,nonce=tostring(epoch)..':'..sequence}
  return true
 end
 local function stopTownServices(town,plan)
@@ -532,10 +609,11 @@ local function stopTownServices(town,plan)
   attached[pid]=nil;recoverPatrols[pid]=nil
  end
  for key,order in pairs(Store.get().orders)do
-  if order.metadata and order.metadata.town==town then pending[key]=nil;recoverOrders[key]=nil end
+  if order.metadata and order.metadata.town==town then recoverOrders[key]=nil end
  end
 end
 function M.tick()
+ if not Live.readyWorld() then return end
  frames=frames+1
  indexWork()
  local processed=false
@@ -548,7 +626,7 @@ function M.tick()
   Evacuation.tick(Live.clock(),report,notify,stopTownServices)
  end
  if not Store.ready() then return end
- if frames%60==0 then
+ if frames==1 or frames%60==0 then
   local now=Live.clock()
   if now<nextScan-RECOVER_MINUTES then nextScan=now;nextReconcile=now;recoveryQueue={}end
   if now>=nextScan then scheduleRecovery(now)end
@@ -560,7 +638,7 @@ function M.tick()
 end
 function M.resetSession()
  for _,driver in pairs(drivers)do pcall(driver.resetSession)end
- queue={};drivers={};pending={};attached={};dialogueStatus={};frames=0;nextScan=0;nextReconcile=0;epoch=epoch+1;sequence=0;loadedSeen=false
+ queue={};drivers={};attached={};dialogueStatus={};hireWait={};frames=0;nextScan=0;nextReconcile=0;epoch=epoch+1;sequence=0;loadedSeen=false
  indexed=false;recoverOrders={};recoverPatrols={};recoveryQueue={}
  Evacuation.reset();Roster.reset();Dialogue.resetSession();Store.reset()
 end

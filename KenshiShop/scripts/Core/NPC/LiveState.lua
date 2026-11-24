@@ -1,6 +1,10 @@
 -- Alpha.76 native movement-safety checks for delivery/load only.
 -- A failed or missing state check never authorizes a forced order or teleport.
 local M={}
+local revision,closing=0,false
+function M.newWorld() revision=revision+1;closing=false end
+function M.closeWorld() closing=true end
+function M.revision() return revision end
 function M.call(obj,method,...)
  if not obj then return nil end
  local ok,fn=pcall(function()return obj[method]end)
@@ -8,6 +12,14 @@ function M.call(obj,method,...)
  local good,val=pcall(fn,obj,...)
  if good then return val end
  return nil
+end
+function M.readyWorld()
+ if closing then return nil end
+ local w=getGameWorld()
+ if not w or M.call(w,'isLoadingFromASaveGame')==true then return nil end
+ local ok,initialized,resetting=pcall(function()return w.initialized,w.gameResetting end)
+ if ok and (initialized==false or resetting==true) then return nil end
+ return w
 end
 function M.clock()
  local w=assert(getGameWorld(),'WORLD_MISSING')

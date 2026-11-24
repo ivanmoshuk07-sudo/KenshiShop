@@ -2,6 +2,7 @@
 -- The owning faction is verified before resident/member checks; furniture and NPC AI untouched.
 -- Uses a freshly observed building handle and an existing ACTIVE shop-trader platoon.
 local Log=require('Diagnostics')
+local Live=require('Core.NPC.LiveState')
 local Transport=require('Core.NPC.Transport')
 local TownAudit=require('Core.Ownership.TownAudit')
 local ConstructionGate=require('Core.Ownership.ConstructionGate')
@@ -54,6 +55,10 @@ local function resident(b)
  local h=try(function()return b.residentSquad end)
  return h and try(h.getPlatoon,h) or nil
 end
+local function squadHandle(p)
+ local h=Live.call(p,'getHandle')
+ if h and Live.call(h,'isNull')~=true and Live.call(h,'toString') then return h end
+end
 local function cpuClock()
  local v=try(function()return os.clock()end)
  return type(v)=='number' and v or nil
@@ -94,7 +99,7 @@ function M.new(cfg,report)
   return w and w.factionMgr and try(w.factionMgr.getFactionByStringID,w.factionMgr,spec.faction) or nil
  end
  local function locate(s,b,spec)
-  local cached=s.groups[spec.role]
+  local cached=Live.call(s.groups[spec.role],'getPlatoon')
   if cached and templateID(cached)==spec.template then
    -- Spawned platoon may not have its home attached until later, but is attested by the factory.
    if s.attested[spec.role] or homeID(cached)==s.key then return cached,'attested' end
@@ -103,7 +108,7 @@ function M.new(cfg,report)
   if spec.owner then
    local p=resident(b)
    if p and templateID(p)==spec.template and homeID(p)==s.key then
-    s.groups[spec.role]=p;return p,'resident_handle'
+    s.groups[spec.role]=squadHandle(p);return p,'resident_handle'
    end
   end
   local f=faction(spec)
@@ -116,7 +121,7 @@ function M.new(cfg,report)
     for i=1,count do
      local p=list[i]
      if p and templateID(p)==spec.template and homeID(p)==s.key then
-      s.groups[spec.role]=p;return p,method
+      s.groups[spec.role]=squadHandle(p);return p,method
      end
     end
    end
@@ -465,6 +470,11 @@ function M.new(cfg,report)
   end
  end
  local function tick(s)
+  if not Live.readyWorld() then return end
+  if s.worldRevision~=Live.revision() then
+   s.worldRevision=Live.revision();s.groups={};s.attested={}
+   s.rolePassed={};s.residentsVerified={}
+  end
   if Retirement.retired(s.key) then
    stop(s);states[s.key]=nil;return
   end
@@ -514,10 +524,10 @@ function M.new(cfg,report)
   -- Invalidate old role/squad caches and never carry active pointers across loads.
   if prior then stop(prior) end
   local s={key=k,handle=b:getHandle(),origin=reason,startedCPU=cpuClock(),frames=0,
-   stage=reason,ownerOK=false,nativeCalls=0,groups={},attested={},once={},rolePassed={},
+   stage=reason,worldRevision=Live.revision(),ownerOK=false,nativeCalls=0,groups={},attested={},once={},rolePassed={},
    residentsVerified={},roleChecks=0,waitReason=nil,everNPCOwned=prior and prior.everNPCOwned or false,
    recoveries=prior and prior.recoveries or 0,cycle=(prior and prior.cycle or 0)+1}
-  if platoon and role then s.groups[role]=platoon;s.attested[role]=reason=='SPAWN' end
+  if platoon and role then s.groups[role]=squadHandle(platoon);s.attested[role]=reason=='SPAWN' end
   if reason=='CONSTRUCTION' then s.constructionCPU=s.startedCPU
   elseif prior and prior.constructionCPU then s.constructionCPU=prior.constructionCPU end
   states[k]=s
@@ -563,7 +573,7 @@ function M.new(cfg,report)
    if spec.role==role and p and templateID(p)==spec.template and homeID(p)==key(b) then
     local s=states[key(b)]
     if s and s.hook then
-     s.groups[role]=p;s.attested[role]=false
+     s.groups[role]=squadHandle(p);s.attested[role]=false
      emit(s,'SQUAD_READY','role='..role..' origin=LOAD; native_saved_squad','squad_'..role)
     else begin(b,'RESTORED',p,role)end
     return true
@@ -575,7 +585,7 @@ function M.new(cfg,report)
   if Retirement.retired(key(b)) then return false,'BUILDING_RETIRED' end
   local s=states[key(b)]
   if s and s.hook then
-   s.groups[role]=p
+   s.groups[role]=squadHandle(p)
   else begin(b,'ARRIVAL',p,role)end
   return true
  end

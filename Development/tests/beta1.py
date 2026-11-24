@@ -103,7 +103,7 @@ def audit_lua():
     require(seen == files, 'unreachable Lua modules: ' + ', '.join(
         str(p.relative_to(scripts)) for p in sorted(files - seen)))
     for name in ['Core.lua', 'KenshiLuaConsole.lua']:
-        require('1.0-beta.11' in (scripts / name).read_text(encoding='utf-8'),
+        require('1.0-beta.12' in (scripts / name).read_text(encoding='utf-8'),
                 f'{name} does not identify beta 1.0')
     print('PASS all 122 Lua modules reachable from init.main; literal requires resolve; beta version matches')
 

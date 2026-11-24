@@ -96,7 +96,11 @@ function M.staffedShopKeys(ctx)
    if not Retirement.retired(k) then result[k]=layout.name end
   end
  end
- if not result[key(s.tower)] then return nil,'TOWER_NOT_IN_SCOPED_OWNERSHIP'end
+ local towerKey=key(s.tower)
+ if owner(s.tower)==Config.faction and towerKey and not Retirement.retired(towerKey) then
+  result[towerKey]='police'
+ end
+ if not result[towerKey] then return nil,'TOWER_NOT_IN_SCOPED_OWNERSHIP'end
  return result
 end
 local function collectLayoutOutside(parent,candidates,result,playerID,town)

@@ -94,4 +94,15 @@ test('old role labels migrate without being mistaken for unfinished delivery',fu
  end
  assert(not Work.isWorkingPackage({role='patrol'},'Foreign patrol'))
 end)
+test('early load audit reads copied handles while native town and resident initialize',function()
+ local audit=require('Core.Ownership.TownAudit')
+ local inspected=0
+ local h={toString=function()return 'building' end,getPlatoon=function()inspected=inspected+1 end}
+ local b={residentSquad=h,getHandle=function()return h end,getTownHandle=function()return h end,
+  getTown=function()inspected=inspected+1 end}
+ audit.snapshot('police',b,'LOAD_CALLBACK','LOAD')
+ audit.snapshot('police',b,'CONSTRUCTION_CALLBACK','CONSTRUCTION')
+ assert(inspected==0)
+end)
+
 print('Residence API boundary tests passed: '..passed)

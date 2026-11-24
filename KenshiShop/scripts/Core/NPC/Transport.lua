@@ -79,8 +79,12 @@ function M.spawn(p,building,config)
  -- The 11th supplied parameter (AItarget) MUST be a real KenshiLua.hand.
  -- Alpha.21 passed nil there and every spawn failed with 'bad argument #12'.
  -- Use the parent building handle; target town remains the shop's town.
+ local home=building
+ -- Only the original occupants fill the tower's single native resident slot.
+ -- A hired squad receives its own service home on arrival.
+ if config.serviceHired then home=nil end
  return p.world.theFactory:createRandomSquad(
- p.faction,p.spawn,assert(p.origin,'NPC_ORIGIN_MISSING'),config.count,building,p.template,
+ p.faction,p.spawn,assert(p.origin,'NPC_ORIGIN_MISSING'),config.count,home,p.template,
  nil,nil,nil,true,building:getHandle(),p.town,1.0,
  -- Native NPC origin and player service target are distinct towns.
  ((SquadType and SquadType.SQ_RESIDENT) or 1),false)

@@ -13,7 +13,7 @@ package.loaded['Core.NPC.LiveState']={
   if not o or type(o[k])~='function'then return nil end
   local ok,v=pcall(o[k],o,...);if ok then return v end
  end,
- clock=function()return now end,
+ clock=function()return now end,readyWorld=function()return 'world'end,
 }
 Events={on=function(_,fn)serial=serial+1;callbacks[serial]=fn;return serial end,
  off=function(id)callbacks[id]=nil;off=off+1 end}
@@ -24,14 +24,14 @@ local function test(name,fn)
  Q.reset();now=0;objects={};calls=0;fail=false
  fn();total=total+1;print('PASS '..name)
 end
-local function state(id)return {platoon={getPlatoonStringID=function()return id end},cfg={shop='police',role='patrol'}}end
+local function state(id)return {platoonRef={key=id},cfg={shop='police',role='patrol'}}end
 local function member(key,id)
  local function handle()
   return {toString=function()return key end,getCharacter=function()return objects[key]end}
  end
  local c={key=key,dead=false,pid=id,isValid=function()return true end,getHandle=handle}
  function c:isDead()return self.dead end
- function c:getPlatoon()return {me={getPlatoonStringID=function()return self.pid end}}end
+ function c:getPlatoon()return {me={getHandle=function()return {toString=function()return self.pid end}end}}end
  objects[key]=c;return {key=key,char=c}
 end
 local function frame()

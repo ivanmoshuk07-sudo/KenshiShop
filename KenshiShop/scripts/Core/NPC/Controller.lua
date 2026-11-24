@@ -37,8 +37,22 @@ local function emit(s,event,details,key)
 end
 local function building(s)
  local b=Live.call(s.handle,'getBuilding')
- if not b or Live.call(b,'isValid')~=true then return nil end
+ if not b or Live.call(b,'isValid')~=true
+  or Live.call(Live.call(b,'getHandle'),'toString')~=s.key then return nil end
  return b
+end
+local function platoonRef(p,id)
+ local pid=id or Live.call(p,'getPlatoonStringID')
+ local h=Live.call(p,'getHandle')
+ local key=Live.call(h,'toString')
+ if type(pid)~='string' or pid=='' or type(key)~='string' or key==''
+  or Live.call(h,'isNull')==true then return nil end
+ return {pid=pid,handle=h,key=key}
+end
+local function platoon(s)
+ local ref=s.platoonRef
+ local p=ref and Live.call(ref.handle,'getPlatoon')
+ if p and Live.call(Live.call(p,'getHandle'),'toString')==ref.key then return p end
 end
 local function fatal(s,reason)
  s.phase='FAILED';s.nextCheck=Live.clock()+AUDIT_MINUTES
@@ -50,7 +64,7 @@ end
 local function supplyAudit(s,ms,now)
  SupplyQueue.enqueue(s,ms,now)
 end
-local function squadMembers(s)
+local function squadMembers(s,world)
  local ap=Live.call(s.platoon,'getActivePlatoon')
  if not ap then return nil,nil,'SQUAD_UNLOADED' end
  local count=Live.call(ap,'getSquadSize')
@@ -60,10 +74,11 @@ local function squadMembers(s)
   local bb=lead and Live.call(lead,'getBlackboard')
   nativeSaved=Work.isWorkingPackage(s.cfg,Live.call(bb,'getCurrentAIPackageName'))
  end
- if type(count)~='number' or count<1 or count>s.cfg.count or (s.phase~='DELIVERED' and not nativeSaved and count~=s.cfg.count) then
+ local fullRequired=s.phase~='DELIVERED' and not nativeSaved and not (s.saved and s.cfg.serviceHired)
+ if type(count)~='number' or count<1 or count>s.cfg.count or (fullRequired and count~=s.cfg.count) then
   return nil,nil,'COUNT_MISMATCH '..tostring(count)..'/'..s.cfg.count end
- local ms,err=T.members(getGameWorld(),s.platoon,s.cfg.count)
- if ms and #ms~=count then ms,err=T.members(getGameWorld(),s.platoon,s.cfg.count,true)end
+ local ms,err=T.members(world,s.platoon,s.cfg.count)
+ if ms and #ms~=count then ms,err=T.members(world,s.platoon,s.cfg.count,true)end
  if not ms or err or #ms~=count then
   return nil,nil,'MEMBER_SCAN_INCOMPLETE '..tostring(ms and #ms or 0)..'/'..s.cfg.count..' '..tostring(err)
  end
@@ -104,7 +119,7 @@ local function snapshot(s,ms,b,arrivalRadius)
   if not T.valid(p) then return nil,'POSITION_INVALID '..m.key end
   local d=T.distance2D(p,target)
   local isInside=barGuardInside(s,m.char)
-  local rec={pos=Live.copy(p),distance=d,char=m.char,nativeInsideBar=isInside}
+  local rec={pos=Live.copy(p),distance=d,nativeInsideBar=isInside}
   snap[m.key]=rec
   if atDeliveryTarget(s,rec) then
    near=near+1
@@ -115,7 +130,7 @@ local function snapshot(s,ms,b,arrivalRadius)
    end
   end
  end
- return {byID=snap,near=near,target=target},nil
+ return {byID=snap,near=near,target=Live.copy(target)},nil
 end
 local function moved(old,now)
  return old and now and T.distance2D(now.pos,old.pos)>PROGRESS
@@ -124,10 +139,10 @@ local function newOrder(mode)
  return {mode=mode,tries=0,gateTry=0}
 end
 -- Delivery safety only. No native job/package inspection and no job recovery.
-local function dispatch(s,rec,reason,last)
+local function dispatch(s,rec,character,reason,last)
  local o=s.orders[rec.id] or newOrder('pending')
  s.orders[rec.id]=o
- local ok,err=pcall(rec.char.setDestination,rec.char,s.target,false)
+ local ok,err=pcall(character.setDestination,character,s.target,false)
  if not ok then
   o.mode='failed';emit(s,'ORDER_FAIL','member='..rec.id..' reason='..tostring(err),rec.id..'_order_fail')
   return false
@@ -136,6 +151,12 @@ local function dispatch(s,rec,reason,last)
  o.mode='await';o.testAt=s.now+ORDER_TEST_MINUTES;o.previous=rec
  emit(s,'ORDER','member='..rec.id..' attempt='..(last and 'POST_GATE' or tostring(o.tries))..' reason='..reason..' target='..T.fmt(s.target),rec.id..'_order_'..o.tries..'_'..o.gateTry)
  return true
+end
+local function duty(s,ms)
+ Duty.tick(s,ms)
+ if not s.cfg.serviceHired or not s.work or not s.work.done then return end
+ local services=rawget(_G,'KenshiShopPoliceServices')
+ if type(services)=='table' and type(services.hiredDuty)=='function' then services.hiredDuty(s,ms) end
 end
 local function arrived(s,ms,b)
  if not s.arrivalReported then
@@ -151,7 +172,7 @@ local function arrived(s,ms,b)
  -- Delivery ends. Native goals take over; never reissue a destination here.
  supplyAudit(s,ms,s.now)
  local residentOK=Residence.ensure(s,b)
- if residentOK then Work.ensure(s,ms);Catalog.ensure(s,ms);Duty.tick(s,ms,b)
+ if residentOK then Work.ensure(s,ms);Catalog.ensure(s,ms);duty(s,ms)
  else emit(s,'RESIDENT_WAIT','work_handoff_waits_for_trader_resident')end
  s.phase='DELIVERED';s.nextCheck=s.now+1
  -- Low-frequency handoff retries and resource audit; no forced work movement.
@@ -166,7 +187,7 @@ local function beginOrders(s,ms,snap,reason,eligible)
    local halted,why=Live.halted(m.char)
    if not halted and (not eligible or eligible[m.key]) then
     rec.id=m.key
-    if dispatch(s,rec,reason,false) then count=count+1 end
+    if dispatch(s,rec,m.char,reason,false) then count=count+1 end
    else
     emit(s,'ORDER_HELD','member='..m.key..' '..tostring(why or 'NOT_ELIGIBLE'),'held_'..m.key)
     s.orders[m.key]=newOrder('protected')
@@ -221,14 +242,15 @@ local function fallbackGate(s,ms,ap,snap)
  emit(s,'TELEPORT_REQUESTED','count='..#candidates..' target='..T.fmt(point)..' '..desc..' verify_before_last_order')
  return true
 end
-local function verifyGate(s,snap)
+local function verifyGate(s,ms,snap)
  local done=0
+ local members={};for _,m in ipairs(ms)do members[m.key]=m.char end
  for id,dst in pairs(s.gateTargets or {})do
   local o=s.orders[id];local rec=snap.byID[id]
-  if s.gateMoved[id] and rec and T.distance2D(rec.pos,dst)<=55 then
+  if s.gateMoved[id] and rec and members[id] and T.distance2D(rec.pos,dst)<=55 then
    emit(s,'TELEPORT_OK','member='..id..' gate='..T.fmt(dst),'tele_ok_'..id)
    rec.id=id
-   if dispatch(s,rec,'last_order_after_gate',true) then done=done+1 end
+   if dispatch(s,rec,members[id],'last_order_after_gate',true) then done=done+1 end
   else
    if o then o.mode='failed' end
    emit(s,'TELEPORT_FAIL','member='..id..' verification_failed','gate_verify_fail_'..id)
@@ -238,7 +260,7 @@ local function verifyGate(s,snap)
  s.phase='DELIVER';s.nextCheck=s.now+ORDER_TEST_MINUTES
 end
 local function deliveryStep(s,ms,ap,snap)
- if s.phase=='VERIFY_GATE' then return verifyGate(s,snap) end
+ if s.phase=='VERIFY_GATE' then return verifyGate(s,ms,snap) end
  if s.phase=='WAIT_TELEPORT' then
   if s.now<s.teleDue then return end
   -- No teleport if a previously stalled member resumed movement.
@@ -275,7 +297,7 @@ local function deliveryStep(s,ms,ap,snap)
    elseif o.gateTry>0 then
     o.mode='failed';emit(s,'STUCK','member='..m.key..' after_teleport=1; no_more_attempts','final_stuck_'..m.key)
    elseif o.tries<MAX_ORDERS then
-    dispatch(s,rec,'retry_after_failed_test',false)
+    dispatch(s,rec,m.char,'retry_after_failed_test',false)
    else
     o.mode='exhausted';o.previous=rec;exhausted=exhausted+1
     emit(s,'STUCK','member='..m.key..' attempts=3; gate_in_2_game_minutes','stuck_3_'..m.key)
@@ -285,7 +307,7 @@ local function deliveryStep(s,ms,ap,snap)
   elseif o.mode=='protected' then
    local held=Live.halted(m.char)
    if not held and (o.tries or 0)<MAX_ORDERS then
-    dispatch(s,rec,'resume_delivery_after_safe',false)
+    dispatch(s,rec,m.char,'resume_delivery_after_safe',false)
    end
   end
  end
@@ -350,13 +372,13 @@ local function audit(s,ms,snap)
    if not atDeliveryTarget(s,rec) then
     local held=Live.halted(m.char)
     if not held then
-     if not o then dispatch(s,rec,'saved_movement_stopped',false)
+     if not o then dispatch(s,rec,m.char,'saved_movement_stopped',false)
      elseif o.mode=='moving' and not moved((s.lastAudit or {})[m.key] or o.previous,rec) then
       if o.gateTry>0 then o.mode='failed'
-      elseif o.tries<MAX_ORDERS then dispatch(s,rec,'ten_minute_stall',false)
+      elseif o.tries<MAX_ORDERS then dispatch(s,rec,m.char,'ten_minute_stall',false)
       else o.mode='exhausted';o.previous=rec end
      elseif o.mode=='protected' and (o.tries or 0)<MAX_ORDERS then
-      dispatch(s,rec,'resume_delivery_after_safe',false)
+      dispatch(s,rec,m.char,'resume_delivery_after_safe',false)
      end
     end
    end
@@ -395,19 +417,30 @@ function M.new(cfg)
   SupplyQueue.cancel(s)
   if s.hook then MonitorQueue.remove(s.hook);s.hook=nil end
  end
+ local function waitSaved(s)
+  SupplyQueue.cancel(s)
+  s.phase='WAIT_SAVED';s.saved=true;s.nextCheck=0;s.previousClock=nil
+  s.platoonRef=nil;s.pid=nil;s.orders={};s.baseline=nil;s.lastAudit=nil
+  s.work=nil;s.catalog=nil;s.duty=nil;s.postDuty=nil
+  s.nextSupplyCheck=nil;s.supplyResetAt=nil;s.supplyFailures=nil;s.supplyClock=nil
+  s.teleDue=nil;s.gateTargets=nil;s.gateMoved=nil;s.pausedChecks=nil;s.teleportUsed={}
+ end
  local function tick(s)
-  if retiredBuilding(s.key) or retiredPlatoon(Live.call(s.platoon,'getPlatoonStringID')) then
+  if retiredBuilding(s.key) or retiredPlatoon(s.pid) then
    stop(s);states[s.key]=nil;return
+  end
+  local world=Live.readyWorld();if not world then return end
+  local revision=Live.revision()
+  if s.worldRevision~=revision then
+   waitSaved(s);s.worldRevision=revision;s.once={}
   end
   s.frames=s.frames+1
   local now=Live.clock()
   if s.previousClock and now+0.001<s.previousClock then
-   SupplyQueue.cancel(s);T.resetMembers()
+   T.resetMembers()
    -- All stores recover their EXISTING squad on clock rewind. A previous
    -- version stopped monitoring four stores and lost unfinished delivery.
-   s.previousClock=now;s.nextCheck=0;s.phase='WAIT_SAVED'
-   s.saved=true;s.platoon=nil;s.orders={};s.baseline=nil;s.work=nil;s.catalog=nil;s.duty=nil;s.nextSupplyCheck=nil;s.supplyResetAt=nil;s.supplyFailures=nil
-   s.teleDue=nil
+   waitSaved(s);s.previousClock=now
    emit(s,'CLOCK_RESET_RECOVER','game_clock_decreased; read_only_saved_squad_lookup; no_new_spawn','clock_reset_recover_'..s.frames)
    return
   end
@@ -421,9 +454,10 @@ function M.new(cfg)
    -- A building can load before its faction's saved squads are registered.
    -- One deferred lookup per 10 game minutes, never spawn or replace anything.
    local ok,p,why=pcall(Existing.find,b,cfg)
-   if ok and p then
-    s.platoon=p;s.phase='WAIT_ACTIVE';s.nextCheck=0
-    emit(s,'SAVED_FOUND','deferred existing_platoon='..tostring(Live.call(p,'getPlatoonStringID'))..' no_respawn','saved_deferred')
+   local ref=ok and p and platoonRef(p)
+   if ref and not retiredPlatoon(ref.pid) then
+    s.platoonRef=ref;s.pid=ref.pid;s.phase='WAIT_ACTIVE';s.nextCheck=0
+    emit(s,'SAVED_FOUND','deferred existing_platoon='..ref.pid..' no_respawn','saved_deferred')
     if not cfg.serviceHired then
      pcall(function() require('Core.Ownership.Registry').onRestored(cfg.shop,cfg.role,b,p) end)
     end
@@ -434,7 +468,9 @@ function M.new(cfg)
    return
   end
   if s.phase=='BLOCKED_AMBIGUOUS' then s.nextCheck=now+AUDIT_MINUTES;return end
-  local ms,ap,err=squadMembers(s)
+  s.platoon=platoon(s)
+  if not s.platoon then s.nextCheck=now+AUDIT_MINUTES;return end
+  local ms,ap,err=squadMembers(s,world)
   if not ms then
    s.nextCheck=now+AUDIT_MINUTES
    emit(s,'MONITOR_PAUSED',tostring(err),'pause_'..tostring(err))
@@ -467,7 +503,7 @@ function M.new(cfg)
    if cfg.role=='trader' then
     pcall(function()require('Core.Ownership.Registry').monitorResident(cfg.shop,b,now)end)
    end
-   if residentOK then Duty.tick(s,ms,b)end
+   if residentOK then duty(s,ms)end
    s.nextCheck=now+1
    return
   end
@@ -502,7 +538,7 @@ function M.new(cfg)
    end
    return
   end
-  if snap.near==cfg.count then
+  if snap.near==#ms then
    s.lastAudit=snap.byID
    return arrived(s,ms,b)
   end
@@ -516,6 +552,9 @@ function M.new(cfg)
   if s.hook then return true end
   local id,why=MonitorQueue.add(function()
    local good,reason=pcall(tick,s)
+   -- Borrowed native wrappers are valid only for this monitored pass. The
+   -- next frame resolves both objects again from owned handle values.
+   s.platoon=nil;s.building=nil
    if not good then
     Log.error('NPC_MONITOR_EXCEPTION shop='..cfg.shop..' '..tostring(reason))
     s.phase='FAILED';stop(s)
@@ -524,12 +563,13 @@ function M.new(cfg)
   if not id then s.phase='HOOK_FAILED';Log.error('NPC_HOOK_FAILED '..cfg.shop..' '..tostring(why));return false end
   s.hook=id;return true
  end
- local function newState(b,p,saved)
+ local function newState(b,ref,saved)
   local key=b:getHandle():toString()
-  local s={cfg=cfg,key=key,handle=b:getHandle(),platoon=p,saved=saved,phase='WAIT_ACTIVE',
-   frames=0,orders={},teleportUsed={},once={},near=0,previousClock=nil}
+  local s={cfg=cfg,key=key,handle=b:getHandle(),platoonRef=ref,pid=ref and ref.pid,saved=saved,
+   phase=ref and 'WAIT_ACTIVE' or 'WAIT_SAVED',
+   frames=0,orders={},teleportUsed={},once={},near=0,previousClock=nil,worldRevision=Live.revision()}
   states[key]=s
-  if p then emit(s,saved and 'SAVED_FOUND' or 'SPAWN',saved and ('existing_platoon='..tostring(Live.call(p,'getPlatoonStringID'))..' no_respawn') or 'native_platoon_created') end
+  if ref then emit(s,saved and 'SAVED_FOUND' or 'SPAWN',saved and ('existing_platoon='..ref.pid..' no_respawn') or 'native_platoon_created') end
   s.nextCheck=0
   -- Preserve the factory's legacy 40-frame registration grace for new squads.
   attach(s,saved and 0 or 40)
@@ -595,7 +635,7 @@ function M.new(cfg)
   Log.console('NPC_PREFLIGHT shop='..cfg.shop..' squad='..cfg.role..' building='..key..' template='..cfg.template..' count='..cfg.count..' outside='..pre.method..' at='..T.fmt(pre.spawn))
   local spawned,p=pcall(T.spawn,pre,b,cfg)
   if not spawned or not p then return false,'SPAWN_FAILED '..tostring(p) end
-  newState(b,p,false)
+  newState(b,platoonRef(p),false)
   -- Ownership begins when the original squad exists, NOT only after arrival/load.
   local ownOK,ownErr=pcall(function()
    require('Core.Ownership.Registry').onSpawned(cfg.shop,cfg.role,b,p)
@@ -609,17 +649,14 @@ function M.new(cfg)
   if retiredBuilding(key) then return false,'RETIRED_BUILDING' end
   local s=states[key]
   if s then
-   SupplyQueue.cancel(s)
-   if s.hook then
-    -- Load callbacks may reuse the same building handle while old monitors exist.
-    -- Reset stale native pointers; wait for read-only saved-squad resolution.
-    s.handle=b:getHandle();s.platoon=nil;s.saved=true;s.phase='WAIT_SAVED'
-    s.nextCheck=0;s.previousClock=nil;s.orders={};s.baseline=nil;s.work=nil;s.catalog=nil;s.duty=nil;s.nextSupplyCheck=nil;s.supplyResetAt=nil;s.supplyFailures=nil
-    return true,'LOAD_REFRESH_SAVED_LOOKUP; no_respawn'
-   end
-   s.handle=b:getHandle();s.phase='WAIT_SAVED';s.nextCheck=0
-   s.platoon=nil;s.saved=true;s.previousClock=nil;s.orders={};s.work=nil;s.catalog=nil;s.duty=nil;s.nextSupplyCheck=nil;s.supplyResetAt=nil;s.supplyFailures=nil
+   -- Load can register a building whose handle already has a monitor.
+   s.handle=b:getHandle();waitSaved(s);s.worldRevision=Live.revision()
+   if s.hook then return true,'LOAD_REFRESH_SAVED_LOOKUP; no_respawn' end
    return attach(s),'SESSION_REATTACHED'
+  end
+  if not Live.readyWorld() then
+   newState(b,nil,true)
+   return true,'WAIT_WORLD_LOADED'
   end
   local ok,p,reason=pcall(Existing.find,b,cfg)
   if not ok then return false,'LOOKUP_EXCEPTION '..tostring(p) end
@@ -633,7 +670,8 @@ function M.new(cfg)
    local s=newState(b,nil,true);s.phase='WAIT_SAVED';s.nextCheck=Live.clock()+AUDIT_MINUTES
    return false,'WAIT_SAVED_PLATOON '..tostring(reason)
   end
-  newState(b,p,true)
+  local ref=platoonRef(p)
+  newState(b,ref,true)
   if not cfg.serviceHired then
    local signaled,notifyError=pcall(function()
     require('Core.Ownership.Registry').onRestored(cfg.shop,cfg.role,b,p)
@@ -650,6 +688,8 @@ function M.new(cfg)
   if not id or id=='' then return false,'ADOPT_PLATOON_ID_MISSING' end
   if retiredPlatoon(id) or retiredBuilding(Live.call(Live.call(b,'getHandle'),'toString')) then return false,'RETIRED_SERVICE_SQUAD' end
   if cfg.existingID and tostring(id)~=tostring(cfg.existingID) then return false,'ADOPT_ID_MISMATCH' end
+  local ref=platoonRef(p,id)
+  if not ref then return false,'ADOPT_HANDLE_UNAVAILABLE' end
   local good,template=pcall(function()return p.squadTemplate.stringID end)
   if not good or template~=cfg.template then return false,'ADOPT_TEMPLATE_MISMATCH' end
   local f=Live.call(p,'getFaction');local data=Live.call(f,'getData')
@@ -667,22 +707,25 @@ function M.new(cfg)
    end
   end
   local key=b:getHandle():toString();local old=states[key]
-  if old and Live.call(old.platoon,'getPlatoonStringID')==id then
-   old.platoon=p;old.handle=b:getHandle();old.building=b
+  if old and old.pid==id then
+   if old.worldRevision~=Live.revision() then waitSaved(old);old.phase='WAIT_ACTIVE' end
+   old.platoonRef=ref;old.pid=id;old.handle=b:getHandle();old.worldRevision=Live.revision()
    invalidateRoster(old,'PAID_REPLACEMENT')
    seed(old)
    if not old.hook then attach(old)end
    return true,'EXISTING_MONITOR_UPDATED '..id
   end
   if old then stop(old)end
-  local next=newState(b,p,not options.fresh)
+  local next=newState(b,ref,not options.fresh)
   seed(next)
   return next.hook~=nil,'NATIVE_PLATOON_ADOPTED '..id
  end
  function driver.status(b)
   local s=states[b:getHandle():toString()]
   if not s then return 'NOT_SCHEDULED' end
-  return s.phase..' work='..Work.status(s)..' duty='..Duty.status(s)..' catalog='..tostring(s.catalog and s.catalog.done or false)..' counted='..tostring(s.counted or '?')..'/'..cfg.count..' near='..tostring(s.near or 0)..' saved='..tostring(s.saved)..' next='..tostring(s.nextCheck)
+  local w=Live.readyWorld()
+  local work=Work.status({work=s.work,platoon=w and platoon(s),building=w and building(s)})
+  return s.phase..' work='..work..' duty='..Duty.status(s)..' catalog='..tostring(s.catalog and s.catalog.done or false)..' counted='..tostring(s.counted or '?')..'/'..cfg.count..' near='..tostring(s.near or 0)..' saved='..tostring(s.saved)..' next='..tostring(s.nextCheck)
  end
  function driver.check(b)
   local ok,pre=pcall(T.preflight,b,cfg)

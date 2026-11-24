@@ -3,6 +3,7 @@
 -- this dynamic pool. The paid backend receives the frozen death ID, never an
 -- index or a request to choose some other vacancy.
 local Log=require('Diagnostics')
+local Live=require('Core.NPC.LiveState')
 local M={}
 local PACKAGE='11100-KenshiShop.mod'
 local ROOT='11101-KenshiShop.mod'
@@ -310,7 +311,7 @@ local function dispatch(api,dialogue,line)
  request(api,'replace',chief,player,key,deathID,selected.newLedger)
 end
 local function openQueued()
- local job=queued;if not job then return end
+ local job=queued;if not job or not Live.readyWorld() then return end
  queued=nil
  local s=job.session
  if active~=s or s.token~=job.token then return end

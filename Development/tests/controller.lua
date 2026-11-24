@@ -6,6 +6,7 @@ Events={on=function(_,fn)hookID=hookID+1;frames[hookID]=fn;return hookID end,
  off=function(id)frames[id]=nil end}
 local moves,spawns,gear,work,catalog,supplies,resets=0,0,0,0,0,0,0
 local objects,homes,groups={},{},{}
+local revision=0
 local workThisFrame=0
 local function hooks()local n=0;for _ in pairs(frames)do n=n+1 end;return n end
 local function runFrames(n,minutes)
@@ -21,7 +22,7 @@ end
 local function run(minutes)runFrames(40,minutes)end
 package.loaded.Diagnostics={console=function()end,error=function(msg)error(msg)end}
 local function handle(id)
- return {toString=function()return id end,
+ return {toString=function()return id end,getPlatoon=function()return groups[id]end,
  getBuilding=function()local b=objects[id];return b and b.kind=='building' and b.loaded and b or nil end,
  getCharacter=function()local c=objects[id];return c and c.kind=='character' and c.loaded and c or nil end}
 end
@@ -43,6 +44,7 @@ local function home(id,pid)
   getHandle=function()return handle(id)end,getPosition=function()return {x=0,y=0,z=0}end}
  objects[id]=b;homes[id]=b
  local p={members={},loaded=true,getPlatoonStringID=function()return pid end}
+ function p:getHandle()return handle(pid)end
  local ap={me=p,getSquadSize=function()return #p.members end,getSquadLeader=function()return p.members[1].char end}
  function p:getActivePlatoon()return self.loaded and ap or nil end
  p.members={member(pid..'-leader',p),member(pid..'-second',p)}
@@ -55,7 +57,8 @@ function getGameWorld()return world end
 package.loaded['Core.NPC.LiveState']={call=function(o,m,...)
  if o and type(o[m])=='function'then local ok,v=pcall(o[m],o,...);if ok then return v end end
  end,
- clock=function()return time end,halted=function()return false end,safeToOrder=function()return true end,
+ clock=function()return time end,readyWorld=function()return not world.loading and world or nil end,
+ revision=function()return revision end,halted=function()return false end,safeToOrder=function()return true end,
  copy=function(x)return {x=x.x,y=x.y,z=x.z}end}
 package.loaded['Core.NPC.Transport']={members=function(_,p)return p.members end,valid=function()return true end,
  resetMembers=function()resets=resets+1 end,
@@ -128,6 +131,21 @@ test('resetting final driver removes shared monitor and all queued supply work',
  b.resetSession();assert(next(frames)==nil)
  runFrames(50);assert(next(frames)==nil)
  noNewOrders()
+end)
+test('same-minute native reload cannot read a platoon destroyed by the previous world',function()
+ local h,old=home('reload-tower','reload-patrol')
+ local d=driver();assert(d.resume(h));run(0);delivered(d,h)
+ local stale=0
+ function old:getPlatoonStringID()stale=stale+1;error('destroyed platoon')end
+ function old:getHandle()stale=stale+1;error('destroyed platoon')end
+ function old:getActivePlatoon()stale=stale+1;error('destroyed platoon')end
+ world.loading=true;run(0);assert(stale==0)
+ for _,m in ipairs(old.members)do objects[m.key]=nil end
+ local loaded,current=home(h.key,'reload-patrol')
+ world.loading=false;revision=revision+1
+ run(0);run(0);delivered(d,loaded)
+ assert(stale==0 and current~=old)
+ noNewOrders();d.resetSession();assert(next(frames)==nil)
 end)
 test('a protected new squad member resumes delivery when safe without stopping its monitor',function()
  local building,p=home('mixed-delivery','new-patrol')
