@@ -6,4 +6,5 @@ return {
  ['103-KenshiShop.mod']=require('Core.Weapons.Building.FurnitureData'),
  ['104-KenshiShop.mod']=require('Core.Robotics.Building.FurnitureData'),
  ['105-KenshiShop.mod']=require('Core.Police.Building.FurnitureData'),
+ ['106-KenshiShop.mod']={name='crematorium',objects={}},
 }

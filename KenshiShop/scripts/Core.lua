@@ -1,10 +1,10 @@
--- KenshiShop 0.3.0-alpha.23-appearance-only: six isolated building dispatchers (five original shops unchanged).
+-- Dispatch native construction and load events to each building module.
 local Registry=require('Core.Registry')
 local Log=require('Diagnostics')
 local Construction=require('Construction')
 local Ownership=require('Core.Ownership.Registry')
 local Retirement=require('Core.Ownership.Retirement')
-local M={version='1.0-beta.8.2'}
+local M={version='1.0-beta.8.3'}
 local started=false
 local npcLoadedLogged={}
 function M.start()

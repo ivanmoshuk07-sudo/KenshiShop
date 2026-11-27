@@ -11,6 +11,12 @@ end
 function M.probe(s,c,key)
  local active,priority=task(c)
  local row={active=active,priority=priority,home=O.handleID(O.field(Live.call(c,'getStateBroadcast'),'homeBuilding'))}
+ if s.cfg.role=='undertaker' then
+  local steps={[136]='CREMATION_ACTIVE',[137]='CORPSE_DISPOSAL_ACTIVE',[138]='CORPSE_SEARCH_ACTIVE'}
+  row.expected='136/137/138'
+  row.result=steps[active] or 'AWAITING_NATIVE_DISPOSAL'
+  return row
+ end
  if s.cfg.role=='patrol' then
   local hour=type(s.now)=='number' and s.now/60%24
   local day=hour and hour>=6 and hour<23

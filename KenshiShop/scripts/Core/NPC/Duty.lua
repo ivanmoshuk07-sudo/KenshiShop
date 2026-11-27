@@ -5,8 +5,10 @@ local PostDuty=require('Core.NPC.PostDuty')
 local Care=require('Core.NPC.NativeCare')
 local M={}
 function M.tick(s,ms)
- Care.tick(s,ms)
- PostDuty.tick(s,ms)
+ if s.cfg.role~='undertaker' then
+  Care.tick(s,ms)
+  PostDuty.tick(s,ms)
+ end
  local d={members={}};s.duty=d
  for _,m in ipairs(ms)do
   local o=Live.call(m.char,'getOrdersReciever')

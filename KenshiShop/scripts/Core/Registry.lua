@@ -6,6 +6,7 @@ local slots={
  ['103-KenshiShop.mod']=require('Core.Weapons.init'),
  ['104-KenshiShop.mod']=require('Core.Robotics.init'),
  ['105-KenshiShop.mod']=require('Core.Police.init'),
+ ['106-KenshiShop.mod']=require('Core.Crematorium.init'),
 }
 local M={}
 function M.byID(sid)return slots[tostring(sid)] end

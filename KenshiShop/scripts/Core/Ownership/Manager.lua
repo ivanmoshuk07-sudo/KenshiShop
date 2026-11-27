@@ -185,6 +185,7 @@ function M.new(cfg,report)
   emit(s,'TRANSFER_TIMING',info,'timing')
   s.ownerOK=true
   s.stage='OWNER_OK';s.nextRole=s.frames+ROLE_STEP_FRAMES
+  if cfg.hasInterior==false then return end
   if cfg.shop=='bar' then
    -- AFTER parent ownership was restored: bar-only, bounded 50/50 furniture repair.
    local ok,restorer=pcall(require,'Core.Bar.Building.FurnitureRestore')

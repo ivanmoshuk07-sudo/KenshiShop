@@ -23,6 +23,7 @@ function M.package(cfg)
   return '10001-KenshiShop.mod','KSB2 Trader 06-23'
  elseif cfg.role=='guard' then return '10002-KenshiShop.mod','KSB2 Indoor guards'
  elseif cfg.role=='chief' then return '10003-KenshiShop.mod','KSB2 Police chief'
+ elseif cfg.role=='undertaker' then return '11602-KenshiShop.mod','KS Undertaker duty'
  elseif cfg.role=='patrol' then
   if cfg.patrolNight then return '11001-KenshiShop.mod','KSB3 Hired night patrol' end
   return '10004-KenshiShop.mod','KSB2 Town patrol'
@@ -76,6 +77,9 @@ function M.ensure(s,ms)
   if Live.call(orders,'hasOrders')~=false then busy=true;why='NATIVE_ORDERS_OR_UNKNOWN'end
   local active=Live.call(Live.call(orders,'getCurrentGoal'),'key')
   if ({[25]=true,[57]=true,[58]=true,[60]=true,[70]=true,[99]=true,[100]=true,[105]=true,[106]=true,[142]=true,[148]=true})[active] then busy=true;why='NATIVE_CARE_'..active end
+  if s.cfg.role=='undertaker' and (active==136 or active==137 or active==138) then
+   busy=true;why='NATIVE_CORPSE_WORK_'..active
+  end
   local carried=Live.call(mate.char,'getCarryingObject')
   if busy or not carried or Live.call(carried,'isNull')~=true then
    if not r.busyLogged then say(s,'DEFER',why or 'CARRYING_OR_UNKNOWN');r.busyLogged=true end
@@ -119,10 +123,12 @@ function M.ensure(s,ms)
   end
   r.homeDone=true
  end
- local nodeOK,nodeWhy=Nodes.ensure(s,s.building)
- if not nodeOK then
-  if r.nodeWhy~=nodeWhy then say(s,'WAIT_NODES',nodeWhy);r.nodeWhy=nodeWhy end
-  return false
+ if s.cfg.role~='undertaker' then
+  local nodeOK,nodeWhy=Nodes.ensure(s,s.building)
+  if not nodeOK then
+   if r.nodeWhy~=nodeWhy then say(s,'WAIT_NODES',nodeWhy);r.nodeWhy=nodeWhy end
+   return false
+  end
  end
  if Live.call(bb,'getCurrentAIPackageName')~=label then
   -- AI-only migration preserves approved stock, including saved care packages.
@@ -136,7 +142,8 @@ function M.ensure(s,ms)
  local awake,err=Activate.ensure(r,ms)
  if not awake then return fail(s,r,'NATIVE_ACTIVATION '..tostring(err)) end
  r.done=true;r.installed=true
- say(s,'READY','package='..id..' label='..label..' service='..tostring(Origin.id(s.building:getTown()))..' urgent=3 rescue=2 work=1 gameplay=UNVERIFIED')
+ local priorities=s.cfg.role=='undertaker' and 'urgent=3 corpse_disposal=2 work=1' or 'urgent=3 rescue=2 work=1'
+ say(s,'READY','package='..id..' label='..label..' service='..tostring(Origin.id(s.building:getTown()))..' '..priorities..' gameplay=UNVERIFIED')
  return true
 end
 function M.status(s)

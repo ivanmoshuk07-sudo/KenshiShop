@@ -71,8 +71,9 @@ end
 function M.newLedgerOffered()
  return hooksInstalled and Store.canStartNewOrders()
 end
-local roleNames={trader='Торговец',guard='Охранник',chief='Начальник охраны',patrol='Патрульный'}
-local businessNames={bar='Бар',engineering='Мастерская',armour='Магазин брони',weapons='Оружейная',robotics='Магазин робототехники',police='Охрана города'}
+local roleNames={trader='Торговец',guard='Охранник',chief='Начальник охраны',patrol='Патрульный',undertaker='Могильщик'}
+local businessNames={bar='Бар',engineering='Мастерская',armour='Магазин брони',weapons='Оружейная',robotics='Магазин робототехники',
+ police='Охрана города',crematorium='Крематорий'}
 local function replacementClaimed(selectedID)
  for _,order in pairs(Store.get().orders)do
   if type(order)=='table' and order.kind=='replace' and order.subject=='replace:'..selectedID

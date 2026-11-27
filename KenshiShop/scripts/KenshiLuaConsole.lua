@@ -4,7 +4,7 @@
 local Log = require('Diagnostics')
 local layoutsOK, Layouts = pcall(require, 'Layouts')
 if not layoutsOK then Layouts = {} end
-local API = {version = '1.0-beta.8.2'}
+local API = {version = '1.0-beta.8.3'}
 local state = {
     started = false, core = 'not started', coreError = nil,
     tracked = {}, order = {},
@@ -19,6 +19,7 @@ local EXPECTED = {
     ['103-KenshiShop.mod']=68,
     ['104-KenshiShop.mod']=17,
     ['105-KenshiShop.mod']=61,
+    ['106-KenshiShop.mod']=0,
 }
 local function join(lines) return table.concat(lines, '\n') end
 local function safe(fn)
@@ -559,7 +560,7 @@ API.npcStart = call('npcStart', function(n)
  local Registry=require('Core.Registry')
  local shop=Registry.byBuilding(b)
  if not shop then return 'NO_SHOP_MODULE' end
- if b:getNumInternalBuildings()~=shop.interior.expectedInternalCount() then
+ if shop.interior and b:getNumInternalBuildings()~=shop.interior.expectedInternalCount() then
   return 'NPC_START_BLOCKED: interior count differs (legacy or incomplete); no changes made'
  end
  return 'NPC_START '..shop.name..': '..shop.npcStart(b)

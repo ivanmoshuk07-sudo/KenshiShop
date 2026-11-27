@@ -1,4 +1,5 @@
-local M={faction='400-KenshiShop.mod',tower='105-KenshiShop.mod',hired='11000-KenshiShop.mod',hiredGuard='11500-KenshiShop.mod'}
+local M={faction='400-KenshiShop.mod',tower='105-KenshiShop.mod',hired='11000-KenshiShop.mod',hiredGuard='11500-KenshiShop.mod',
+ crematorium='106-KenshiShop.mod',undertaker='11601-KenshiShop.mod'}
 local definitions={
  {'300','bar','trader',1,'Core.Bar.NPC.Trader'},
  {'7800','bar','guard',2,'Core.Bar.NPC.Guard'},
@@ -13,6 +14,7 @@ local definitions={
  {'311','police','patrol',3,'Core.Police.NPC.Patrol'},
  {'11000','police','patrol',3},
  {'11500','police','guard',3},
+ {'11601','crematorium','undertaker',1,'Core.Crematorium.NPC'},
 }
 M.templates={}
 for _,v in ipairs(definitions)do

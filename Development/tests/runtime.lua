@@ -92,6 +92,26 @@ end)
 test('handoff once; successful audit is idempotent',function()
  local s=state();assert(Work.ensure(s,{a,b}));assert(Work.ensure(s,{a,b}));assert(replaceCount==1 and setupCount==2)
 end)
+test('undertaker receives his native work package and mission town without service nodes',function()
+ local s=state()
+ local originalSize,originalLookup=ap.getSquadSize,gm.getData
+ local nodes=package.loaded['Core.NPC.NativeNodes']
+ local originalEnsure=nodes.ensure
+ ap.getSquadSize=function()return 1 end
+ gm.getData=function(_,id,kind)
+  assert(id=='11602-KenshiShop.mod' and kind==72)
+  return {name='KS Undertaker duty'}
+ end
+ nodes.ensure=function()error('crematorium has no service posts')end
+ s.cfg={shop='crematorium',role='undertaker',count=1,faction='400-KenshiShop.mod'}
+ label='KS Undertaker delivery'
+ assert(Work.ensure(s,{a}) and Work.ensure(s,{a}))
+ assert(replaceCount==1 and setupCount==1 and s.work.done)
+ assert(label=='KS Undertaker duty' and currentPackage.missionTown:toString()=='town')
+ assert(bb.targetTown==town and owns._homeTown==origin)
+ nodes.ensure=originalEnsure
+ ap.getSquadSize,gm.getData=originalSize,originalLookup
+end)
 test('combat defers handoff without spending retry budget',function()
  local s=state();busy=true;for i=1,8 do assert(not Work.ensure(s,{a,b}))end
  assert(replaceCount==0 and s.work.tries==0);busy=false;assert(Work.ensure(s,{a,b}))

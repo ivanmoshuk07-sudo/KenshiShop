@@ -6,6 +6,7 @@ local modules={
  weapons=require('Core.Weapons.Building.Ownership'),
  robotics=require('Core.Robotics.Building.Ownership'),
  police=require('Core.Police.Building.Ownership'),
+ crematorium=require('Core.Crematorium.Ownership'),
 }
 local history={}
 local MAX_LINES=400

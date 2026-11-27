@@ -1,6 +1,7 @@
 package.path=arg[1]..'/?.lua;'..arg[1]..'/?/init.lua;'..package.path
 
 local towerSID='105-KenshiShop.mod'
+local crematoriumSID='106-KenshiShop.mod'
 local chiefSID='310-KenshiShop.mod'
 local npcID='400-KenshiShop.mod'
 local objects,retired,transfers,stopped={},{},{},{}
@@ -39,7 +40,10 @@ end
 lektor={new=function()return {}end}
 package.loaded.Diagnostics={console=function()end}
 package.loaded['Core.Ownership.Registry']={retire=function(_,k)stopped[k]=true end}
-package.loaded.Layouts={[towerSID]={name='police',objects={{id='sign',outside=true,p={3,0,1},q={1,0,0,0}}}}}
+package.loaded.Layouts={
+ [towerSID]={name='police',objects={{id='sign',outside=true,p={3,0,1},q={1,0,0,0}}}},
+ [crematoriumSID]={name='crematorium',objects={}},
+}
 local function town(key)
  return {getFaction=function()return player end,getHandle=function()return hand(key)end}
 end
@@ -76,6 +80,7 @@ local bed=building('bed','bed',player,a,tower)
 local sign=building('sign','sign',npc,nil,nil,{x=3,y=0,z=1})
 local outside=building('outside','exterior',npc,a)
 local unrelated=building('unrelated','building',player,a)
+local crematorium=building('crematorium',crematoriumSID,npc,a)
 local neighbor=building('neighbor',towerSID,npc,b)
 local oldTower=building('retired',towerSID,player,a)
 retired.retired=true
@@ -88,9 +93,10 @@ local Retirement=require('Core.Ownership.Retirement')
 Retirement.setPredicate(function(key)return retired[key]==true end)
 local Property=require('Core.Police.Services.PropertyReturn')
 local staffed=assert(Property.staffedShopKeys(ctx))
-assert(staffed.tower=='police' and not staffed.neighbor and not staffed.retired)
+assert(staffed.tower=='police' and staffed.crematorium=='crematorium' and not staffed.neighbor and not staffed.retired)
 local plan=assert(Property.prepare(ctx))
 assert(plan.buildings.tower and not plan.buildings.neighbor and not plan.buildings.retired)
+assert(plan.buildings.crematorium and plan.property.crematorium)
 assert(plan.property.armchair and plan.property.bed and plan.property.sign and plan.property.outside)
 assert(not plan.property.unrelated and not plan.property.neighbor and not next(transfers))
 local pending,reason=Property.prepare(ctx,{missing=true})
@@ -101,7 +107,7 @@ assert(not pending and reason:find('INTERIOR_NOT_READY',1,true) and not next(tra
 tower.inside=2
 pending,reason=Property.apply(ctx,plan.buildings,plan.property)
 assert(not pending and reason:find('PROPERTY_SCOPE_CHANGED',1,true) and not next(transfers))
-retired.tower=true
+retired.tower=true;retired.crematorium=true
 objects.armchair=nil
 pending,reason=Property.apply(ctx,plan.buildings,plan.property)
 assert(not pending and reason:find('PROPERTY_UNLOADED',1,true) and not next(transfers))
@@ -115,6 +121,7 @@ assert(tower.residentSquad:isNull() and tower.residentSquadTemplate==nil)
 outside.fail=false
 assert(Property.apply(ctx,plan.buildings,plan.property,squads))
 assert(outside.owner==player and sign.owner==player and bed.owner==player)
+assert(crematorium.owner==player and stopped.crematorium and transfers.crematorium==1)
 assert(transfers.tower==1 and transfers.armchair==1 and not transfers.bed)
 assert(neighbor.owner==npc and not transfers.unrelated and not stopped.neighbor and not stopped.retired)
 sign.owner=foreign

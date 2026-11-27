@@ -3,7 +3,7 @@ local shops = {
     ['100-KenshiShop.mod']='bar', ['101-KenshiShop.mod']='engineering',
     ['102-KenshiShop.mod']='armour', ['103-KenshiShop.mod']='weapons',
     ['104-KenshiShop.mod']='robotics',
-    ['105-KenshiShop.mod']='police'
+    ['105-KenshiShop.mod']='police', ['106-KenshiShop.mod']='crematorium'
 }
 local M = {}
 function M.observe(building, event)
